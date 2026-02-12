@@ -1,0 +1,3377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Treasure Data: Diamond Quest</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #0a0a1a; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ============================================================
+// TREASURE DATA: DIAMOND QUEST
+// A Pokémon-style adventure in the world of Context Intelligence
+// ============================================================
+
+// --- 1a: Canvas Setup ---
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Internal resolution (Game Boy style)
+const GAME_W = 256;
+const GAME_H = 224;
+canvas.width = GAME_W;
+canvas.height = GAME_H;
+
+// Scale canvas to fit window
+function resizeCanvas() {
+  const scaleX = window.innerWidth / GAME_W;
+  const scaleY = window.innerHeight / GAME_H;
+  const scale = Math.floor(Math.min(scaleX, scaleY));
+  canvas.style.width = (GAME_W * Math.max(scale, 1)) + 'px';
+  canvas.style.height = (GAME_H * Math.max(scale, 1)) + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1b: Constants & Game State ---
+const TILE = 16;
+
+const STATE = {
+  TITLE: 'TITLE',
+  INTRO: 'INTRO',
+  STARTER_SELECT: 'STARTER_SELECT',
+  OVERWORLD: 'OVERWORLD',
+  BATTLE: 'BATTLE',
+  CUTSCENE: 'CUTSCENE',
+  DIALOGUE: 'DIALOGUE',
+  EVOLUTION: 'EVOLUTION',
+  VICTORY: 'VICTORY',
+};
+
+const game = {
+  state: STATE.TITLE,
+  prevState: null,
+  frame: 0,
+  dt: 0,
+  lastTime: 0,
+  player: {
+    x: 0, y: 0,
+    dir: 0, // 0=down,1=up,2=left,3=right
+    creature: null,
+    agents: [],
+    badges: [],
+    diamondFragments: 0,
+    hasDiamondRecord: false,
+  },
+  stageFlags: {
+    stage1Complete: false,
+    stage2Complete: false,
+    stage3Complete: false,
+    bossDefeated: false,
+  },
+};
+
+// --- 1c: Input Handler ---
+const input = {
+  keys: {},
+  justPressed: {},
+  _prev: {},
+};
+
+window.addEventListener('keydown', (e) => {
+  e.preventDefault();
+  input.keys[e.code] = true;
+});
+window.addEventListener('keyup', (e) => {
+  e.preventDefault();
+  input.keys[e.code] = false;
+});
+
+function inputUpdate() {
+  for (const key in input.keys) {
+    input.justPressed[key] = input.keys[key] && !input._prev[key];
+  }
+  input._prev = { ...input.keys };
+}
+
+function isPressed(code) { return input.justPressed[code]; }
+function isHeld(code) { return input.keys[code]; }
+function confirmPressed() { return isPressed('KeyZ') || isPressed('Enter') || isPressed('Space'); }
+function cancelPressed() { return isPressed('KeyX') || isPressed('Backspace'); }
+function upPressed() { return isPressed('ArrowUp') || isPressed('KeyW'); }
+function downPressed() { return isPressed('ArrowDown') || isPressed('KeyS'); }
+function leftPressed() { return isPressed('ArrowLeft') || isPressed('KeyA'); }
+function rightPressed() { return isPressed('ArrowRight') || isPressed('KeyD'); }
+function upHeld() { return isHeld('ArrowUp') || isHeld('KeyW'); }
+function downHeld() { return isHeld('ArrowDown') || isHeld('KeyS'); }
+function leftHeld() { return isHeld('ArrowLeft') || isHeld('KeyA'); }
+function rightHeld() { return isHeld('ArrowRight') || isHeld('KeyD'); }
+
+// --- 1d: Color Palette (Treasure Data inspired) ---
+const PAL = {
+  black:    '#0a0a1a',
+  dark:     '#1a1a3e',
+  mid:      '#2d2d6b',
+  blue:     '#4a6cf7',
+  cyan:     '#5ce6d0',
+  green:    '#3ddc84',
+  yellow:   '#ffd54f',
+  orange:   '#ff8a50',
+  red:      '#ff5252',
+  pink:     '#f48fb1',
+  purple:   '#b388ff',
+  white:    '#f0f0ff',
+  grey:     '#8888aa',
+  diamond:  '#7df3ff',
+  gold:     '#ffd700',
+};
+
+// --- 1e: Pixel Text Rendering ---
+// Simple bitmap font - draws text at pixel scale
+function drawText(text, x, y, color = PAL.white, size = 1) {
+  ctx.fillStyle = color;
+  ctx.font = `${8 * size}px monospace`;
+  ctx.textBaseline = 'top';
+  ctx.fillText(text, x, y);
+}
+
+function drawTextCentered(text, y, color = PAL.white, size = 1) {
+  ctx.fillStyle = color;
+  ctx.font = `${8 * size}px monospace`;
+  ctx.textBaseline = 'top';
+  const w = ctx.measureText(text).width;
+  ctx.fillText(text, (GAME_W - w) / 2, y);
+}
+
+function drawRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+}
+
+function drawBorder(x, y, w, h, color = PAL.white, thickness = 1) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = thickness;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+}
+
+// --- 2a: Sprite Drawing System ---
+// Sprites are defined as 2D arrays of palette indices
+// Each sprite is an array of rows, each row is a string where each char maps to a color
+// '.' = transparent, other chars map to a color lookup
+
+function createSpriteCanvas(data, colorMap, scale = 1) {
+  const h = data.length;
+  const w = data[0].length;
+  const c = document.createElement('canvas');
+  c.width = w * scale;
+  c.height = h * scale;
+  const cx = c.getContext('2d');
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const ch = data[y][x];
+      if (ch !== '.') {
+        cx.fillStyle = colorMap[ch] || '#ff00ff';
+        cx.fillRect(x * scale, y * scale, scale, scale);
+      }
+    }
+  }
+  return c;
+}
+
+// Cache for pre-rendered sprites
+const spriteCache = {};
+
+function getSprite(name) {
+  if (!spriteCache[name]) {
+    const def = SPRITE_DEFS[name];
+    if (!def) return null;
+    spriteCache[name] = createSpriteCanvas(def.data, def.colors, def.scale || 1);
+  }
+  return spriteCache[name];
+}
+
+function drawSprite(name, x, y) {
+  const s = getSprite(name);
+  if (s) ctx.drawImage(s, Math.floor(x), Math.floor(y));
+}
+
+function drawSpriteScaled(name, x, y, w, h) {
+  const s = getSprite(name);
+  if (s) ctx.drawImage(s, Math.floor(x), Math.floor(y), w, h);
+}
+
+// Master sprite definitions - populated in 2b-2g
+const SPRITE_DEFS = {};
+
+// Helper to register a sprite
+function defSprite(name, data, colors, scale = 1) {
+  SPRITE_DEFS[name] = { data, colors, scale };
+}
+
+// Common color maps
+const C_PLAYER = { 'W': PAL.white, 'B': PAL.blue, 'S': '#ffd1a3', 'H': '#5a3825', 'D': PAL.dark, 'K': '#1a1a1a', 'G': PAL.grey };
+const C_RAFA = { 'W': PAL.white, 'B': '#e0e0e0', 'S': '#d4a373', 'H': '#888888', 'D': PAL.dark, 'G': PAL.green, 'K': '#1a1a1a', 'L': '#b0b0c0' };
+
+// --- 2b: Player Character Sprites (16x16, 4 directions) ---
+defSprite('player_down', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HSSHSSHH..',
+  '..HSWSHSWH..',
+  '..HSSSSSSH..',
+  '...HSSSSH...',
+  '....SSSS....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '...BB..BB...',
+  '..BBB..BBB..',
+  '..KKK..KKK..',
+  '..KK....KK..',
+], C_PLAYER, 1);
+
+defSprite('player_up', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '...HHHHHH...',
+  '....HHHH....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '...BB..BB...',
+  '..BBB..BBB..',
+  '..KKK..KKK..',
+  '..KK....KK..',
+], C_PLAYER, 1);
+
+defSprite('player_left', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '.HSSHHHHHH..',
+  '.HSWHHHHH...',
+  '.HSSSSHHHH..',
+  '..HSSSSH....',
+  '...SSSSH....',
+  '..BBBBBB....',
+  '.BBBWBBB....',
+  '.BBBWBBBB...',
+  '.SBBBBBB....',
+  '..BBBBBB....',
+  '..BB..BB....',
+  '.BBB..BBB...',
+  '.KKK..KKK...',
+  '.KK....KK...',
+], C_PLAYER, 1);
+
+defSprite('player_right', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHSS.',
+  '...HHHHHWSH.',
+  '..HHHHSSSH..',
+  '....HSSSSH..',
+  '....HSSSS...',
+  '....BBBBBB..',
+  '....BBBWBBB.',
+  '...BBBWBBBB.',
+  '....BBBBBBS.',
+  '....BBBBBB..',
+  '....BB..BB..',
+  '...BBB..BBB.',
+  '...KKK..KKK.',
+  '...KK....KK.',
+], C_PLAYER, 1);
+
+// --- 2c: Professor Rafa Sprite + Portrait ---
+defSprite('rafa_down', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HSSHSSHH..',
+  '..HSWSHSWH..',
+  '..HSSSSSSH..',
+  '...HSSSH....',
+  '....SSSS....',
+  '..LLLLLLLL..',
+  '.LLGWWWGLL..',
+  '.LLGWWWGLL..',
+  '..SLLLLLS...',
+  '...LLLLLL...',
+  '...LL..LL...',
+  '..LLL..LLL..',
+  '..KKK..KKK..',
+  '..KK....KK..',
+], C_RAFA, 1);
+
+// Larger portrait for dialogue box (32x32)
+defSprite('rafa_portrait', [
+  '........HHHHHHHH........',
+  '......HHHHHHHHHHHH......',
+  '.....HHHHHHHHHHHHHH.....',
+  '....HHHHHHHHHHHHHHH.....',
+  '...HHSSSSHHHSSSSHH.....',
+  '...HHSWWSHHHSWWSHH.....',
+  '...HHSSSSSSSSSSSHH.....',
+  '....HHSSSSSSSSSHH......',
+  '.....HHSSMMSSHH........',
+  '......HHSSSSSHH........',
+  '.......HSSSSSH.........',
+  '......LLLLLLLLLL.......',
+  '.....LLLGWWWGLLL.......',
+  '....LLLLGWWWGLLLL......',
+  '....LLLLLLLLLLLLL......',
+  '...SSLLLLLLLLLSS.......',
+  '....LLLLLLLLLLLL.......',
+  '....LLLLLLLLLLLL.......',
+], {...C_RAFA, M: '#c97070'}, 1);
+
+// --- 2d: Starter Creature Sprites ---
+const C_MAIL = { 'W': PAL.white, 'B': PAL.blue, 'C': PAL.cyan, 'Y': PAL.yellow, 'D': PAL.dark, 'R': PAL.red, 'K': '#1a1a1a', 'G': PAL.grey };
+const C_PURCH = { 'W': PAL.white, 'G': PAL.green, 'Y': PAL.yellow, 'D': PAL.dark, 'O': PAL.orange, 'K': '#1a1a1a', 'B': '#2d6b2d', 'R': PAL.gold };
+const C_BEHAV = { 'W': PAL.white, 'P': PAL.purple, 'C': PAL.cyan, 'D': PAL.dark, 'B': PAL.blue, 'K': '#1a1a1a', 'Y': PAL.yellow, 'M': PAL.pink };
+
+// Mailmon - envelope creature with wings
+defSprite('mailmon', [
+  '......CC......',
+  '....CCCCCC....',
+  '...CWWWWWWC...',
+  '..CWBWWWWBWC..',
+  '..CWWWWWWWWC..',
+  '.CCWWWWWWWWCC.',
+  'CCCWWYWYWWCCC.',
+  '.CWWWWWWWWWC..',
+  '.CWWRRRRRWWC..',
+  '..CWWWWWWWC...',
+  '...CCCCCCCC...',
+  '....CCCCCC....',
+  '......CC......',
+], C_MAIL, 1);
+
+// Journeyra - evolved Mailmon
+defSprite('journeyra', [
+  '..CC......CC..',
+  '.CCCC..CCCCC..',
+  '.CCCCCCCCCCCC.',
+  '..CWWWWWWWWC..',
+  '.CWBWWWWWBWC..',
+  '.CWWWWWWWWWC..',
+  'CCWWWYWYWWWCC.',
+  'CWWWWWWWWWWWC.',
+  '.CWRRRRRRRWC..',
+  '.CCWWWWWWWCC..',
+  '..CCCCCCCCCC..',
+  '...CCYCCYCC...',
+  '....CC..CC....',
+], C_MAIL, 1);
+
+// Engageon - final evolution
+defSprite('engageon', [
+  '.CCC......CCC.',
+  'CCCCC..CCCCCC.',
+  'CCCCCCCCCCCCC.',
+  'CCYWWWWWWWWYCC',
+  '.CWBWWYWWBWC..',
+  '.CWWWWWWWWWC..',
+  'CCWWYYYYYWWCC.',
+  'CWWWWWWWWWWWC.',
+  'CWRRRRRRRRWC..',
+  '.CCWWWWWWWCC..',
+  '.CCCCCCCCCCC..',
+  '..CCYCCYCCC...',
+  '...CCC.CCC....',
+  '....C...C.....',
+], C_MAIL, 1);
+
+// Purchadon - shopping bag creature
+defSprite('purchadon', [
+  '....GGGG......',
+  '...GGGGGG.....',
+  '..GWWWWWWG....',
+  '..GWKWWKWG....',
+  '..GWWWWWWG....',
+  '..GWWRRWWG....',
+  '.GGWWWWWWGG...',
+  '.GWWWWWWWWG...',
+  '.GYYYYYYYY G...',
+  '.GWWWWWWWWG...',
+  '..GGGGGGGG....',
+  '...GG..GG.....',
+  '..GGG..GGG....',
+], C_PURCH, 1);
+
+// Orderion - evolved Purchadon
+defSprite('orderion', [
+  '...RGGGGR.....',
+  '...GGGGGG.....',
+  '..GWWWWWWG....',
+  '.GGWKWWKWGG...',
+  '.GGWWWWWWGG...',
+  '.GGWWRRWWGG...',
+  '.GWWWWWWWWG...',
+  'GGYYYYYYYYYGG.',
+  '.GWWWWWWWWG...',
+  '.GGGGGGGGGG...',
+  '..GGG..GGG....',
+  '.GGGG..GGGG...',
+  '.GGG....GGG...',
+], C_PURCH, 1);
+
+// Valueforge - final evolution
+defSprite('valueforge', [
+  '..RR.GGGGG.RR.',
+  '..RRGGGGGGGRR.',
+  '..GGWWWWWWGG..',
+  '.GGGWKWWKWGGG.',
+  '.GGGWWWWWWGGG.',
+  '.GGGWWRRWWGGG.',
+  '.GWWWWWWWWWG..',
+  'GGYYYYYYYYYGG.',
+  'GGWWRWWWRWWGG.',
+  '.GGGGGGGGGG...',
+  '..GGGG.GGGG...',
+  '.GGGGG.GGGGG..',
+  '.GGG.....GGG..',
+], C_PURCH, 1);
+
+// Behavix - antenna/phone creature
+defSprite('behavix', [
+  '......YY......',
+  '.....YYY......',
+  '....PPPP......',
+  '...PPPPPP.....',
+  '..PWWWWWWP....',
+  '..PWKWWKWP....',
+  '..PWWWWWWP....',
+  '..PWWCCWWP....',
+  '.PPWWWWWWPP...',
+  '.PWWWWWWWWP...',
+  '..PPPPPPPP....',
+  '...PP..PP.....',
+  '..PPP..PPP....',
+], C_BEHAV, 1);
+
+// Signalon - evolved Behavix
+defSprite('signalon', [
+  '..YY....YY....',
+  '...YY..YY.....',
+  '....PPPP......',
+  '...PPPPPP.....',
+  '..PCWWWWCP....',
+  '..PWKWWKWP....',
+  '.PPWWWWWWPP...',
+  '.PWWCCCCWWP...',
+  '.PWWWWWWWWP...',
+  '.PPPPPPPPPP...',
+  '..PPP..PPP....',
+  '.PPPP..PPPP...',
+  '.PPP....PPP...',
+], C_BEHAV, 1);
+
+// Predictara - final evolution
+defSprite('predictara', [
+  '.YYY....YYY...',
+  '..YYY..YYY....',
+  '...YPPPPPY....',
+  '..PPPCCCPPP...',
+  '.PPCWWWWCPP...',
+  '.PPWKWWKWPP...',
+  '.PPWWWWWWPP...',
+  'PPWWCCCCWWPP..',
+  'PPWWWWWWWWPP..',
+  '.PPPPPPPPPP...',
+  '..PPPP.PPPP...',
+  '.PPPPP.PPPPP..',
+  '.PPP.....PPP..',
+], C_BEHAV, 1);
+
+// --- 2e: Enemy Creature Sprites ---
+const C_ENEMY = { 'W': PAL.white, 'R': PAL.red, 'G': PAL.grey, 'D': PAL.dark, 'Y': PAL.yellow, 'K': '#1a1a1a', 'O': PAL.orange, 'N': PAL.green, 'P': PAL.purple };
+
+// CSV Goblin - messy data creature
+defSprite('csv_goblin', [
+  '....GGGG......',
+  '...GGGGGG.....',
+  '..GGRGGRGGG...',
+  '..GGWGGWGGG...',
+  '..GGGGGGGG....',
+  '..GGYYYYYG....',
+  '.GGGGGGGGGG...',
+  '.GGWGWGWGGG...',
+  '.GGGGGGGGGG...',
+  '..GGGGGGGG....',
+  '...GG..GG.....',
+  '..GGG..GGG....',
+], C_ENEMY, 1);
+
+// Legacy API - old rusty robot
+defSprite('legacy_api', [
+  '..GGGGGGGG....',
+  '..GDDDDDDG...',
+  '..GDRGGRDG....',
+  '..GDWGGWDG....',
+  '..GDDDDDDG...',
+  '..GDYYYYDG....',
+  '...GGGGGG.....',
+  '..GDDDDDG....',
+  '.GGDWDWDGG....',
+  '..GDDDDDG....',
+  '..GGGGGGG.....',
+  '...GG..GG.....',
+  '..GGG..GGG....',
+], C_ENEMY, 1);
+
+// Duplicate Sprite - glitchy twin
+defSprite('duplicate_sprite', [
+  '...PPPP.PPP...',
+  '..PPPPPPPPPP..',
+  '..PRPPRPRPPP..',
+  '..PWPPWPWPPP..',
+  '..PPPPPPPPPP..',
+  '..PYYYYPYYPP..',
+  '.PPPPPPPPPPPP.',
+  '.PPPPPPPPPPPP.',
+  '..PPPPPPPPPP..',
+  '...PP..PP.PP..',
+  '..PPP..PPPPPP.',
+], C_ENEMY, 1);
+
+// Captain Fragmento - villain leader
+const C_FRAG = { 'W': PAL.white, 'R': PAL.red, 'D': PAL.dark, 'K': '#1a1a1a', 'Y': PAL.yellow, 'G': PAL.grey, 'O': PAL.orange, 'S': '#ffd1a3', 'P': PAL.purple };
+defSprite('fragmento', [
+  '...RRRRRR.....',
+  '..RRRRRRRR....',
+  '..RDDDDDDDR..',
+  '..DSSWSSWSD..',
+  '..DSSSSSSSD..',
+  '...DSSSSD....',
+  '....SOOS.....',
+  '..RRRRRRRR...',
+  '.RRKRWWRKRR..',
+  '.RRKRWWRKRR..',
+  '..SRRRRRRS...',
+  '...RRRRRR....',
+  '...RR..RR....',
+  '..KKK..KKK...',
+], C_FRAG, 1);
+
+// Agent enemies
+defSprite('targeting_chaos', [
+  '..RRRRRRRR....',
+  '.RROOOOOOORR..',
+  '.ROWWWWWWOR...',
+  '.ROWKRRRKWOR..',
+  '.ROWRRRRWOR...',
+  '.ROWWWWWWOR...',
+  '.RROOOOOOORR..',
+  '..RRRRRRRR....',
+  '...RR..RR.....',
+  '..RRR..RRR....',
+], C_ENEMY, 1);
+
+defSprite('content_drought', [
+  '....GGGG......',
+  '...GGGGGG.....',
+  '..GGGGGGGG....',
+  '..GRGGGRGG....',
+  '..GWGGGWGG....',
+  '..GGGGGGGG....',
+  '..GGYYYYYG....',
+  '...GGGGGG.....',
+  '..GGDDDDGG...',
+  '..GGDDDDGG...',
+  '...GGGGGG.....',
+], C_ENEMY, 1);
+
+defSprite('timing_disorder', [
+  '...PPPPPP.....',
+  '..PPWWWWPP....',
+  '.PPWKKKKWPP...',
+  '.PPWK..KWPP...',
+  '.PPWK.KKWPP...',
+  '.PPWK..KWPP...',
+  '.PPWKKKKWPP...',
+  '..PPWWWWPP....',
+  '...PPPPPP.....',
+  '....P..P......',
+  '...PP..PP.....',
+], C_ENEMY, 1);
+
+// Dark Algorithm - final boss
+const C_BOSS = { 'W': PAL.white, 'R': PAL.red, 'D': '#0d0d2b', 'K': '#1a1a1a', 'P': PAL.purple, 'G': PAL.grey, 'Y': PAL.yellow, 'C': PAL.cyan, 'O': PAL.orange };
+defSprite('dark_algorithm', [
+  'DDDDDRRDDDDDDD',
+  'DDDDRRRRRDDDDDD',
+  'DDDPRRRRRRPDDD',
+  'DDPRWRRRWRPDD.',
+  'DDPRRRRRRRRPDD',
+  'DPRRRYYYYRRRPD',
+  'DPRRRRRRRRRRPD',
+  'DPRKRKRKRKRPD.',
+  'DDPRRRRRRRPDD.',
+  'DDDPPRRRRPPDD.',
+  'DDDDPPPPPPDDD.',
+  'DDDPP.DD.PPDDD',
+  'DDPP.DDDD.PPDD',
+], C_BOSS, 1);
+
+// --- 2f: Environment Tile Sprites (16x16) ---
+const C_TILE = { 'G': '#3ddc84', 'g': '#2db86a', 'd': '#1a8a4a', 'T': '#5a3825', 't': '#3d2817', 'L': '#2d6b2d', 'l': '#1a4a1a',
+                 'W': '#4a8cf7', 'w': '#3a6cd0', 'P': '#c8b898', 'p': '#a89878', 'F': '#8b7355', 'f': '#6b5335',
+                 'S': '#aaaacc', 's': '#8888aa', 'B': '#6666aa', 'b': '#4444aa', 'D': '#4a3060', 'R': PAL.red,
+                 'N': PAL.cyan, 'n': '#3aa8a8', 'C': PAL.purple, 'c': '#7a58cc', 'Y': PAL.yellow, 'O': PAL.orange };
+
+// Grass tile
+defSprite('tile_grass', [
+  'GGgGGGGgGGGGGGGg',
+  'GGGGGGGGGGgGGGGG',
+  'GGGGgGGGGGGGGGGG',
+  'gGGGGGGGGGGGgGGG',
+  'GGGGGGGgGGGGGGGG',
+  'GGGGGGGGGGGGGGGg',
+  'GGgGGGGGGGgGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGgGGGGGGGGGG',
+  'GGGGGGGGGGgGGGGG',
+  'gGGGGGGGGGGGGGGG',
+  'GGGGGGGGgGGGGGgG',
+  'GGGgGGGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGgGGGGgGGG',
+  'GGgGGGGGGGGGGGGG',
+], C_TILE, 1);
+
+// Tree tile
+defSprite('tile_tree', [
+  '......LLLL......',
+  '....LLLLLLLL....',
+  '...LLLLLLLLLL...',
+  '..LLLLlLLLLLLL.',
+  '.LLLLlLLLLlLLL.',
+  '.LLLLLLLLLLLLLL.',
+  '..LLLLLLLLLLLL..',
+  '...LLLLLLLLLL...',
+  '......TTTT......',
+  '......TTTT......',
+  '......TTTT......',
+  '......TtTT......',
+  '......TTTT......',
+  '......TTTT......',
+  '.....dddddd.....',
+  '....dddddddd....',
+], C_TILE, 1);
+
+// Path tile
+defSprite('tile_path', [
+  'PPPPPPPPPPPPPPPP',
+  'PPPPPpPPPPPPPPPP',
+  'PPPPPPPPPPPPPPPP',
+  'PPPPPPPPPpPPPPPP',
+  'PPPPPPPPPPPPPpPP',
+  'PPpPPPPPPPPPPPPP',
+  'PPPPPPPPPPPPPPPP',
+  'PPPPPPPPPPpPPPPP',
+  'PPPPPpPPPPPPPPPP',
+  'PPPPPPPPPPPPPPPP',
+  'PPPPPPPPPPPPPpPP',
+  'PPPpPPPPPPPPPPPP',
+  'PPPPPPPPPPPPPPPP',
+  'PPPPPPPpPPPPPPPP',
+  'PPPPPPPPPPPPPpPP',
+  'PPPPPPPPPPPPPPPP',
+], C_TILE, 1);
+
+// Water tile
+defSprite('tile_water', [
+  'WWWWwWWWWWWWwWWW',
+  'WWWWWWWWWwWWWWWW',
+  'wWWWWWWWWWWWWWWW',
+  'WWWWWWwWWWWWWWwW',
+  'WWwWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWwWWWWW',
+  'WWwWWWWWWWWWWWWW',
+  'WWWWWWWwWWWWwWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWwWWWWWWWWWWwW',
+  'WWWWWWWWWWWWWWWW',
+  'wWWWWWWWWwWWWWWW',
+  'WWWWWwWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWwWWWW',
+], C_TILE, 1);
+
+// Lab floor tile
+defSprite('tile_lab', [
+  'SSSSSSSSSSSSSSSS',
+  'SssSSSSSSSSSSSSS',
+  'SSSSSSSSSSSSSSSS',
+  'SSSSSSSSSSsSSSSS',
+  'SSSSSSSSSSSSSSSS',
+  'SSSSSSsSSSSSSSsS',
+  'SSSSSSSSSSSSSSSS',
+  'SSSSSSSSSsSSSSsS',
+  'SSSSSSSSSSSSSSSS',
+  'SSSSsSSSSSSSSSsS',
+  'SSSSSSSSSSSSSSSS',
+  'SSSSSSSSSSSSSSSS',
+  'SSsSSSSSSSSSSSSS',
+  'SSSSSSSSSSSSSSSS',
+  'SSSSSSSSSsSSSSSS',
+  'SSSSSSSSSSSSSSSS',
+], C_TILE, 1);
+
+// Wall tile
+defSprite('tile_wall', [
+  'BBBBBBBBBBBBBBBB',
+  'BbbBBBBBBBBBBBBB',
+  'BBBBBBBBBBBBBBBB',
+  'BBBBBBBBBBbBBBBB',
+  'BBBBBBBBBBBBBBBB',
+  'BBBBBbBBBBBBBBBB',
+  'BBBBBBBBBBBBBBBB',
+  'BBBBBBBBBbBBBBBB',
+  'bBBBBBBBBBBBBBBB',
+  'BBBBBBBBBBBBBBBB',
+  'BBBBBBbBBBBBBBBB',
+  'BBBBBBBBBBBBBBBB',
+  'BBBBBBBBBBBBbBBB',
+  'BBBBBBBBBBBBBBBB',
+  'BBbBBBBBBBBBBBBB',
+  'BBBBBBBBBBBBBBBB',
+], C_TILE, 1);
+
+// Door tile
+defSprite('tile_door', [
+  'FFFFFFFFFFFFFFFF',
+  'FFFFFFFFFFFFFFFP',
+  'FFFFFFFFFFFFFFFF',
+  'FFFFfFFFFFFFFfFF',
+  'FFFFFFFFFFFFFFFF',
+  'FFFFFFFFFFFFFFFF',
+  'FFFFFFFYYffFFFFF',
+  'FFFFFFFFFFFFFFFF',
+  'FFFFFFFFFFFFFFFF',
+  'FFfFFFFFFFFFFFFF',
+  'FFFFFFFFFFFFFFFF',
+  'FFFFFFFFFFFfFFFF',
+  'FFFFFFFFFFFFFFFF',
+  'FFFFFFFFFFFFFFFF',
+  'FFFFFFfFFFFFFFFF',
+  'FFFFFFFFFFFFFFFF',
+], C_TILE, 1);
+
+// Nexus tile (blue/purple tech floor)
+defSprite('tile_nexus', [
+  'DDDDNDDDDDDDNDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDNDDDDDDDNDDDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDDDNDDDDDDDND',
+  'DDDDDDDDDDDDDDDD',
+  'NDDDDDDDDDDDDDDD',
+  'DDDDDDDDNDDDDDDD',
+  'DDDDNDDDDDDDDDDD',
+  'DDDDDDDDDDDDDDND',
+  'DDDDDDDDDDDDDDDD',
+  'DDNDDDDDDDDDNDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDDDNDDDDDDDDD',
+  'DDDDDDDDDDDDNDDD',
+  'NDDDDDDDDDDDDDDD',
+], C_TILE, 1);
+
+// Foundry tile (purple tech floor)
+defSprite('tile_foundry', [
+  'DDDDcDDDDDDDcDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDcDDDDDDDcDDDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDDDcDDDDDDDcD',
+  'DDDDDDDDDDDDDDDD',
+  'cDDDDDDDDDDDDDDD',
+  'DDDDDDDDcDDDDDDD',
+  'DDDDcDDDDDDDDDDD',
+  'DDDDDDDDDDDDDDcD',
+  'DDDDDDDDDDDDDDDD',
+  'DDcDDDDDDDDDcDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDDDcDDDDDDDDD',
+  'DDDDDDDDDDDDcDDD',
+  'cDDDDDDDDDDDDDDD',
+], C_TILE, 1);
+
+// --- 2g: UI & Item Sprites ---
+// Diamond fragment
+defSprite('diamond_fragment', [
+  '......NN......',
+  '.....NNNN.....',
+  '....NNNNNN....',
+  '...NNWWNNNN...',
+  '..NNWWNNNNNN..',
+  '...NNNNNNNN...',
+  '....NNNNNN....',
+  '.....NNNN.....',
+  '......NN......',
+], {N: PAL.diamond, W: PAL.white}, 1);
+
+// Diamond record (larger, glowing)
+defSprite('diamond_record', [
+  '.......NN.......',
+  '......NNNN......',
+  '.....NNNNNN.....',
+  '....NNNNNNNN....',
+  '...NNWWNNNNNN...',
+  '..NNWWWWNNNNNN..',
+  '...NNWWNNNNNN...',
+  '....NNNNNNNN....',
+  '.....NNNNNN.....',
+  '......NNNN......',
+  '.......NN.......',
+], {N: PAL.gold, W: PAL.white}, 1);
+
+// Agent icons
+defSprite('agent_audience', [
+  '....BBBB....',
+  '...BBBBBB...',
+  '..BBWWWWBB..',
+  '..BWCCCCWB..',
+  '..BWCCCCWB..',
+  '..BBWWWWBB..',
+  '...BBBBBB...',
+  '....BBBB....',
+], {B: PAL.blue, W: PAL.white, C: PAL.cyan}, 1);
+
+defSprite('agent_creative', [
+  '....PPPP....',
+  '...PPPPPP...',
+  '..PPWWWWPP..',
+  '..PWYYYYWP..',
+  '..PWYYYYWP..',
+  '..PPWWWWPP..',
+  '...PPPPPP...',
+  '....PPPP....',
+], {P: PAL.purple, W: PAL.white, Y: PAL.yellow}, 1);
+
+defSprite('agent_decision', [
+  '....GGGG....',
+  '...GGGGGG...',
+  '..GGWWWWGG..',
+  '..GWOOOOGG..',
+  '..GWOOOOGW..',
+  '..GGWWWWGG..',
+  '...GGGGGG...',
+  '....GGGG....',
+], {G: PAL.green, W: PAL.white, O: PAL.orange}, 1);
+
+// Badge
+defSprite('badge', [
+  '......YY......',
+  '....YYYYYY....',
+  '...YYWWWWYY...',
+  '..YYWNNNNWYY..',
+  '..YWNNNNNNWY..',
+  '..YWNNNNNNWY..',
+  '..YYWNNNNWYY..',
+  '...YYWWWWYY...',
+  '....YYYYYY....',
+  '......YY......',
+  '.....YYYY.....',
+  '....YYYYYY....',
+], {Y: PAL.gold, W: PAL.white, N: PAL.diamond}, 1);
+
+// --- 1f: State Machine ---
+// --- 14: Screen Transition System ---
+const transition = { active: false, alpha: 0, fadeIn: false, midCallback: null, duration: 0.4 };
+
+function changeState(newState) {
+  game.prevState = game.state;
+  game.state = newState;
+}
+
+function changeStateWithFade(newState, callback) {
+  if (transition.active) return;
+  transition.active = true;
+  transition.alpha = 0;
+  transition.fadeIn = false;
+  transition.midCallback = () => {
+    changeState(newState);
+    if (callback) callback();
+  };
+}
+
+function updateTransition() {
+  if (!transition.active) return;
+  const speed = 1 / transition.duration;
+  if (!transition.fadeIn) {
+    transition.alpha = Math.min(1, transition.alpha + game.dt * speed);
+    if (transition.alpha >= 1) {
+      transition.fadeIn = true;
+      if (transition.midCallback) transition.midCallback();
+    }
+  } else {
+    transition.alpha = Math.max(0, transition.alpha - game.dt * speed);
+    if (transition.alpha <= 0) { transition.active = false; }
+  }
+}
+
+function renderTransition() {
+  if (!transition.active || transition.alpha <= 0) return;
+  ctx.fillStyle = `rgba(0,0,0,${transition.alpha})`;
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+}
+
+// State handlers will be populated as we build each system
+const stateHandlers = {
+  [STATE.TITLE]: { update: updateTitle, render: renderTitle },
+  // Placeholders - will be filled in subsequent tasks
+  [STATE.INTRO]: { update: () => {}, render: () => {} },
+  [STATE.STARTER_SELECT]: { update: () => {}, render: () => {} },
+  [STATE.OVERWORLD]: { update: () => {}, render: () => {} },
+  [STATE.BATTLE]: { update: () => {}, render: () => {} },
+  [STATE.CUTSCENE]: { update: () => {}, render: () => {} },
+  [STATE.DIALOGUE]: { update: () => {}, render: () => {} },
+  [STATE.EVOLUTION]: { update: () => {}, render: () => {} },
+  [STATE.VICTORY]: { update: () => {}, render: () => {} },
+};
+
+// --- 3: Dialogue System ---
+
+// 3a: Dialogue data structure & queue
+const dialogue = {
+  active: false,
+  queue: [],          // Array of message objects
+  currentMsg: null,   // Current message being displayed
+  charIndex: 0,       // How many chars revealed so far
+  charTimer: 0,       // Timer for typewriter effect
+  charSpeed: 0.03,    // Seconds per character
+  finished: false,    // All chars revealed for current message?
+  choices: null,      // If current msg has choices: [{label, value}]
+  choiceIndex: 0,     // Currently highlighted choice
+  choiceResult: null,  // Selected choice value
+  returnState: null,  // State to return to after dialogue ends
+  onComplete: null,   // Callback when entire queue finishes
+  bgRender: null,     // Function to render background behind dialogue
+};
+
+// Start a dialogue sequence
+// messages: array of {text, speaker?, portrait?, choices?, onChoice?}
+// options: {returnState, onComplete, bgRender}
+function startDialogue(messages, options = {}) {
+  dialogue.queue = [...messages];
+  dialogue.active = true;
+  dialogue.returnState = options.returnState || game.state;
+  dialogue.onComplete = options.onComplete || null;
+  dialogue.bgRender = options.bgRender || null;
+  dialogue.choiceResult = null;
+  nextDialogueMessage();
+  changeState(STATE.DIALOGUE);
+}
+
+function nextDialogueMessage() {
+  if (dialogue.queue.length === 0) {
+    // Queue exhausted
+    dialogue.active = false;
+    dialogue.currentMsg = null;
+    const cb = dialogue.onComplete;
+    const ret = dialogue.returnState;
+    if (ret) {
+      changeState(ret);
+    }
+    if (cb) {
+      cb(dialogue.choiceResult);
+    }
+    return;
+  }
+  dialogue.currentMsg = dialogue.queue.shift();
+  dialogue.charIndex = 0;
+  dialogue.charTimer = 0;
+  dialogue.finished = false;
+  dialogue.choices = dialogue.currentMsg.choices || null;
+  dialogue.choiceIndex = 0;
+}
+
+// 3b & 3c & 3d: Update and render
+function updateDialogue() {
+  if (!dialogue.currentMsg) return;
+
+  if (!dialogue.finished) {
+    // Typewriter effect
+    dialogue.charTimer += game.dt;
+    const charsToAdd = Math.floor(dialogue.charTimer / dialogue.charSpeed);
+    if (charsToAdd > 0) {
+      dialogue.charIndex += charsToAdd;
+      dialogue.charTimer -= charsToAdd * dialogue.charSpeed;
+    }
+    if (dialogue.charIndex >= dialogue.currentMsg.text.length) {
+      dialogue.charIndex = dialogue.currentMsg.text.length;
+      dialogue.finished = true;
+    }
+    // Press confirm to skip to end
+    if (confirmPressed()) {
+      dialogue.charIndex = dialogue.currentMsg.text.length;
+      dialogue.finished = true;
+      return; // Don't advance on same press
+    }
+  } else if (dialogue.choices) {
+    // Navigate choices
+    if (downPressed()) {
+      dialogue.choiceIndex = (dialogue.choiceIndex + 1) % dialogue.choices.length;
+    }
+    if (upPressed()) {
+      dialogue.choiceIndex = (dialogue.choiceIndex - 1 + dialogue.choices.length) % dialogue.choices.length;
+    }
+    if (confirmPressed()) {
+      dialogue.choiceResult = dialogue.choices[dialogue.choiceIndex].value;
+      if (dialogue.currentMsg.onChoice) {
+        dialogue.currentMsg.onChoice(dialogue.choiceResult);
+      }
+      nextDialogueMessage();
+    }
+  } else {
+    // No choices - advance on confirm
+    if (confirmPressed()) {
+      nextDialogueMessage();
+    }
+  }
+}
+
+function renderDialogue() {
+  // Render background if provided
+  if (dialogue.bgRender) {
+    dialogue.bgRender();
+  }
+
+  if (!dialogue.currentMsg) return;
+
+  const boxH = 64;
+  const boxY = GAME_H - boxH - 4;
+  const boxX = 4;
+  const boxW = GAME_W - 8;
+  const hasPortrait = !!dialogue.currentMsg.portrait;
+  const portraitW = hasPortrait ? 40 : 0;
+  const textX = boxX + 8 + portraitW;
+  const textW = boxW - 16 - portraitW;
+
+  // Draw box background
+  drawRect(boxX, boxY, boxW, boxH, 'rgba(10, 10, 26, 0.92)');
+  drawBorder(boxX, boxY, boxW, boxH, PAL.diamond, 2);
+
+  // Draw portrait
+  if (hasPortrait) {
+    drawRect(boxX + 4, boxY + 4, 36, boxH - 8, 'rgba(30, 30, 60, 0.8)');
+    drawBorder(boxX + 4, boxY + 4, 36, boxH - 8, PAL.grey);
+    drawSpriteScaled(dialogue.currentMsg.portrait, boxX + 6, boxY + 8, 32, 32);
+  }
+
+  // Draw speaker name
+  if (dialogue.currentMsg.speaker) {
+    drawRect(boxX + 6 + portraitW, boxY - 10, ctx.measureText(dialogue.currentMsg.speaker).width + 12, 12, PAL.dark);
+    drawBorder(boxX + 6 + portraitW, boxY - 10, ctx.measureText(dialogue.currentMsg.speaker).width + 12, 12, PAL.cyan);
+    // Measure with current font
+    ctx.font = '8px monospace';
+    const nameW = ctx.measureText(dialogue.currentMsg.speaker).width;
+    drawRect(boxX + 6 + portraitW, boxY - 10, nameW + 12, 12, PAL.dark);
+    drawBorder(boxX + 6 + portraitW, boxY - 10, nameW + 12, 12, PAL.cyan);
+    drawText(dialogue.currentMsg.speaker, boxX + 12 + portraitW, boxY - 9, PAL.cyan);
+  }
+
+  // Draw text with typewriter effect (word-wrapped)
+  const fullText = dialogue.currentMsg.text;
+  const visibleText = fullText.substring(0, dialogue.charIndex);
+  const maxLineChars = Math.floor(textW / 5); // ~5px per char at 8px font
+  const lines = wordWrap(visibleText, maxLineChars);
+  for (let i = 0; i < Math.min(lines.length, 3); i++) {
+    drawText(lines[i], textX, boxY + 10 + i * 14, PAL.white);
+  }
+
+  // Draw choices if finished and choices exist
+  if (dialogue.finished && dialogue.choices) {
+    const choiceBoxW = 120;
+    const choiceBoxH = dialogue.choices.length * 16 + 8;
+    const choiceBoxX = GAME_W - choiceBoxW - 8;
+    const choiceBoxY = boxY - choiceBoxH - 4;
+    drawRect(choiceBoxX, choiceBoxY, choiceBoxW, choiceBoxH, 'rgba(10, 10, 26, 0.95)');
+    drawBorder(choiceBoxX, choiceBoxY, choiceBoxW, choiceBoxH, PAL.gold);
+    for (let i = 0; i < dialogue.choices.length; i++) {
+      const cy = choiceBoxY + 6 + i * 16;
+      const color = (i === dialogue.choiceIndex) ? PAL.gold : PAL.white;
+      const arrow = (i === dialogue.choiceIndex) ? '> ' : '  ';
+      drawText(arrow + dialogue.choices[i].label, choiceBoxX + 8, cy, color);
+    }
+  }
+
+  // Blinking advance indicator
+  if (dialogue.finished && !dialogue.choices) {
+    if (Math.sin(game.frame * 0.1) > 0) {
+      drawText('v', boxX + boxW - 14, boxY + boxH - 14, PAL.diamond);
+    }
+  }
+}
+
+// Word wrap helper
+function wordWrap(text, maxChars) {
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    if (current.length + word.length + 1 > maxChars && current.length > 0) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = current.length > 0 ? current + ' ' + word : word;
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  return lines;
+}
+
+// 3e: Wire into state machine
+stateHandlers[STATE.DIALOGUE] = { update: updateDialogue, render: renderDialogue };
+
+// --- 4a: Creature Data Definitions ---
+const CREATURES = {
+  // Starters
+  mailmon:    { name: 'Mailmon',    sprite: 'mailmon',    type: 'engagement', hp: 30, atk: 8, def: 5, spd: 9, evolvesTo: 'journeyra', evolveLevel: 5,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Normalize', power: 6, desc: 'Clean messy records'}] },
+  journeyra:  { name: 'Journeyra',  sprite: 'journeyra',  type: 'engagement', hp: 50, atk: 14, def: 8, spd: 13, evolvesTo: 'engageon', evolveLevel: 10,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Normalize', power: 6, desc: 'Clean messy records'}, {name: 'Enrich', power: 12, desc: 'Add context layers'}] },
+  engageon:   { name: 'Engageon',   sprite: 'engageon',   type: 'engagement', hp: 75, atk: 20, def: 12, spd: 18,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Enrich', power: 12, desc: 'Add context layers'}, {name: 'Resolve Identity', power: 18, desc: 'Unify all signals'}, {name: 'Context Fusion', power: 22, desc: 'Diamond-powered blast'}] },
+
+  purchadon:  { name: 'Purchadon',  sprite: 'purchadon',  type: 'transaction', hp: 35, atk: 10, def: 7, spd: 5, evolvesTo: 'orderion', evolveLevel: 5,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Normalize', power: 6, desc: 'Clean messy records'}] },
+  orderion:   { name: 'Orderion',   sprite: 'orderion',   type: 'transaction', hp: 60, atk: 18, def: 12, spd: 8, evolvesTo: 'valueforge', evolveLevel: 10,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Normalize', power: 6, desc: 'Clean messy records'}, {name: 'Enrich', power: 12, desc: 'Add context layers'}] },
+  valueforge: { name: 'Valueforge', sprite: 'valueforge', type: 'transaction', hp: 90, atk: 24, def: 16, spd: 12,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Enrich', power: 12, desc: 'Add context layers'}, {name: 'Resolve Identity', power: 18, desc: 'Unify all signals'}, {name: 'Context Fusion', power: 22, desc: 'Diamond-powered blast'}] },
+
+  behavix:    { name: 'Behavix',    sprite: 'behavix',    type: 'behavioral', hp: 28, atk: 7, def: 4, spd: 12, evolvesTo: 'signalon', evolveLevel: 5,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Normalize', power: 6, desc: 'Clean messy records'}] },
+  signalon:   { name: 'Signalon',   sprite: 'signalon',   type: 'behavioral', hp: 45, atk: 12, def: 7, spd: 18, evolvesTo: 'predictara', evolveLevel: 10,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Normalize', power: 6, desc: 'Clean messy records'}, {name: 'Enrich', power: 12, desc: 'Add context layers'}] },
+  predictara: { name: 'Predictara', sprite: 'predictara', type: 'behavioral', hp: 65, atk: 18, def: 10, spd: 22,
+    moves: [{name: 'Stitch', power: 8, desc: 'Link scattered data'}, {name: 'Enrich', power: 12, desc: 'Add context layers'}, {name: 'Resolve Identity', power: 18, desc: 'Unify all signals'}, {name: 'Context Fusion', power: 22, desc: 'Diamond-powered blast'}] },
+
+  // Enemies
+  csv_goblin:      { name: 'CSV Goblin',      sprite: 'csv_goblin',      type: 'silo', hp: 18, atk: 5, def: 3, spd: 4,
+    moves: [{name: 'Scatter', power: 5, desc: 'Fragment data'}, {name: 'Corrupt', power: 7, desc: 'Mess up records'}] },
+  legacy_api:      { name: 'Legacy API',      sprite: 'legacy_api',      type: 'silo', hp: 25, atk: 6, def: 6, spd: 3,
+    moves: [{name: 'Scatter', power: 5, desc: 'Fragment data'}, {name: 'Timeout', power: 8, desc: 'Stall connection'}] },
+  duplicate_sprite:{ name: 'Duplicate',       sprite: 'duplicate_sprite', type: 'silo', hp: 20, atk: 7, def: 4, spd: 6,
+    moves: [{name: 'Clone', power: 6, desc: 'Create copies'}, {name: 'Confuse', power: 7, desc: 'Mix up identities'}] },
+  fragmento:       { name: 'Capt. Fragmento', sprite: 'fragmento',       type: 'syndicate', hp: 55, atk: 12, def: 10, spd: 8,
+    moves: [{name: 'Silo Wall', power: 10, desc: 'Block unification'}, {name: 'Fragment Storm', power: 14, desc: 'Shatter records'}, {name: 'Vendor Lock', power: 12, desc: 'Trap in point solution'}] },
+
+  // Stage 3 enemies
+  targeting_chaos: { name: 'Targeting Chaos', sprite: 'targeting_chaos', type: 'disorder', hp: 35, atk: 10, def: 6, spd: 7,
+    moves: [{name: 'Mis-target', power: 9, desc: 'Wrong audience'}, {name: 'Waste Spend', power: 11, desc: 'Burn ad budget'}] },
+  content_drought: { name: 'Content Drought', sprite: 'content_drought', type: 'disorder', hp: 30, atk: 8, def: 8, spd: 5,
+    moves: [{name: 'Blank Page', power: 8, desc: 'No creative output'}, {name: 'Stale Copy', power: 10, desc: 'Boring messaging'}] },
+  timing_disorder: { name: 'Timing Disorder', sprite: 'timing_disorder', type: 'disorder', hp: 32, atk: 9, def: 5, spd: 10,
+    moves: [{name: 'Bad Timing', power: 9, desc: 'Wrong moment'}, {name: 'Spam Blast', power: 11, desc: 'Overwhelm inbox'}] },
+
+  // Final boss
+  dark_algorithm:  { name: 'Dark Algorithm',  sprite: 'dark_algorithm',  type: 'boss', hp: 100, atk: 16, def: 12, spd: 10,
+    moves: [{name: 'Silo Wall', power: 10, desc: 'Block unification'}, {name: 'Fragment Storm', power: 14, desc: 'Shatter records'}, {name: 'Glitch Wave', power: 18, desc: 'Corrupt all data'}, {name: 'Dark Disconnect', power: 20, desc: 'Sever all links'}] },
+};
+
+// Create a creature instance from a template
+function createCreature(id, level = 1) {
+  const tmpl = CREATURES[id];
+  if (!tmpl) return null;
+  const levelMult = 1 + (level - 1) * 0.15;
+  return {
+    id: id,
+    name: tmpl.name,
+    sprite: tmpl.sprite,
+    type: tmpl.type,
+    level: level,
+    xp: 0,
+    xpToNext: level * 20,
+    maxHp: Math.floor(tmpl.hp * levelMult),
+    hp: Math.floor(tmpl.hp * levelMult),
+    atk: Math.floor(tmpl.atk * levelMult),
+    def: Math.floor(tmpl.def * levelMult),
+    spd: Math.floor(tmpl.spd * levelMult),
+    moves: [...tmpl.moves],
+    evolvesTo: tmpl.evolvesTo || null,
+    evolveLevel: tmpl.evolveLevel || null,
+  };
+}
+
+// --- 4b: Intro Scene (Professor Rafa's Lab) ---
+function renderLabBackground() {
+  // Lab floor
+  for (let x = 0; x < GAME_W; x += 16) {
+    for (let y = 0; y < GAME_H; y += 16) {
+      drawSprite('tile_lab', x, y);
+    }
+  }
+  // Back wall
+  for (let x = 0; x < GAME_W; x += 16) {
+    drawSprite('tile_wall', x, 0);
+    drawSprite('tile_wall', x, 16);
+  }
+  // Professor Rafa
+  drawSpriteScaled('rafa_down', GAME_W / 2 - 8, 50, 16, 16);
+  // Lab equipment decorations
+  drawRect(30, 36, 40, 24, PAL.mid);
+  drawBorder(30, 36, 40, 24, PAL.cyan);
+  drawText('CDP', 38, 42, PAL.cyan);
+  drawRect(186, 36, 40, 24, PAL.mid);
+  drawBorder(186, 36, 40, 24, PAL.purple);
+  drawText('A.I.', 194, 42, PAL.purple);
+  // Diamond core in center (unstable)
+  const pulse = Math.sin(game.frame * 0.06) * 2;
+  ctx.globalAlpha = 0.5 + Math.sin(game.frame * 0.04) * 0.3;
+  drawSpriteScaled('diamond_record', GAME_W / 2 - 8, 36, 16 + pulse, 16 + pulse);
+  ctx.globalAlpha = 1;
+}
+
+function startIntro() {
+  startDialogue([
+    { text: 'Welcome to the world of Context Intelligence!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Signals live everywhere... but without structure... they are chaos.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Once, marketers relied on scattered signals across different kingdoms: Emailia, Apporia, Retailon, Adverra...', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Then came the Diamond Core, a legendary artifact capable of unifying signals into living intelligence.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'But the Diamond Core is unstable... Only a trained Signal Tamer can restore it.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Your mission is simple. Restore the Diamond Core.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'But first... you must choose your starter signal.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+  ], {
+    bgRender: renderLabBackground,
+    onComplete: () => { changeState(STATE.STARTER_SELECT); },
+  });
+}
+
+// Wire INTRO state to start the dialogue (only once)
+let introStarted = false;
+stateHandlers[STATE.INTRO] = {
+  update: () => { if (!introStarted) { introStarted = true; startIntro(); } },
+  render: renderLabBackground,
+};
+
+// --- 4c: Starter Selection Screen ---
+let starterSelection = 0;
+const STARTERS = ['mailmon', 'purchadon', 'behavix'];
+const STARTER_DESCS = [
+  { name: 'Mailmon', type: 'Engagement', trait1: 'High activation', trait2: 'Fast evolution', trait3: 'Weak memory', color: PAL.cyan },
+  { name: 'Purchadon', type: 'Transaction', trait1: 'Strong scoring', trait2: 'Powerful hits', trait3: 'Slower speed', color: PAL.green },
+  { name: 'Behavix', type: 'Behavioral', trait1: 'Real-time intel', trait2: 'Predictive', trait3: 'AI scoring', color: PAL.purple },
+];
+
+function updateStarterSelect() {
+  if (rightPressed()) starterSelection = (starterSelection + 1) % 3;
+  if (leftPressed()) starterSelection = (starterSelection - 1 + 3) % 3;
+  if (confirmPressed()) {
+    const chosen = STARTERS[starterSelection];
+    game.player.creature = createCreature(chosen, 3);
+    startPostSelectionDialogue(chosen);
+  }
+}
+
+function renderStarterSelect() {
+  renderLabBackground();
+
+  // Title
+  drawRect(0, 70, GAME_W, 14, 'rgba(10, 10, 26, 0.85)');
+  drawTextCentered('Choose your starter signal!', 72, PAL.gold);
+
+  // Three cards
+  for (let i = 0; i < 3; i++) {
+    const cardW = 72;
+    const cardH = 100;
+    const cardX = 10 + i * (cardW + 8);
+    const cardY = 90;
+    const selected = (i === starterSelection);
+    const desc = STARTER_DESCS[i];
+
+    // Card bg
+    drawRect(cardX, cardY, cardW, cardH, selected ? 'rgba(30, 30, 80, 0.95)' : 'rgba(10, 10, 26, 0.85)');
+    drawBorder(cardX, cardY, cardW, cardH, selected ? desc.color : PAL.grey, selected ? 2 : 1);
+
+    // Creature sprite (centered in card)
+    const spriteKey = STARTERS[i];
+    drawSpriteScaled(spriteKey, cardX + 22, cardY + 6, 28, 28);
+
+    // Name
+    drawText(desc.name, cardX + 4, cardY + 38, selected ? desc.color : PAL.white);
+    // Type
+    drawText(desc.type, cardX + 4, cardY + 50, PAL.grey);
+    // Traits
+    drawText(desc.trait1, cardX + 4, cardY + 64, PAL.white);
+    drawText(desc.trait2, cardX + 4, cardY + 74, PAL.white);
+    drawText(desc.trait3, cardX + 4, cardY + 84, PAL.grey);
+
+    // Selection arrow
+    if (selected) {
+      if (Math.sin(game.frame * 0.1) > 0) {
+        drawText('v', cardX + cardW / 2 - 3, cardY - 10, desc.color);
+      }
+    }
+  }
+
+  // Instructions
+  drawTextCentered('< Arrow Keys > to choose, ENTER to confirm', 198, PAL.grey);
+}
+
+stateHandlers[STATE.STARTER_SELECT] = { update: updateStarterSelect, render: renderStarterSelect };
+
+// --- 4d: Post-Selection Dialogue ---
+function startPostSelectionDialogue(chosenId) {
+  const name = CREATURES[chosenId].name;
+  startDialogue([
+    { text: `Excellent choice! ${name} will serve you well on your journey.`, speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: `${name} represents powerful signals that can help restore the Diamond Core.`, speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Your first task: venture into Fragment Forest and collect the Diamond Fragment.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Beware of wild data creatures... CSV Goblins and Legacy APIs roam there.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Remember: Signals alone are noise. Context makes them powerful.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Good luck, Signal Tamer! The world of Contextia needs you!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+  ], {
+    bgRender: renderLabBackground,
+    onComplete: () => { changeState(STATE.OVERWORLD); initOverworld(); },
+  });
+}
+
+// --- 5: Overworld System ---
+
+// 5a: Map data structure & camera
+const MAPS = {}; // Will hold map definitions
+const overworld = {
+  currentMap: 'lab',
+  camera: { x: 0, y: 0 },
+  moveTimer: 0,
+  moveSpeed: 0.12, // seconds per tile move
+  moving: false,
+  encounters: [],
+  triggers: [],
+  npcs: [],
+  encounterSteps: 0,
+  encounterRate: 6, // steps between possible encounters
+};
+
+// Tile types: 0=walkable, 1=wall, 2=water, 3=trigger
+const TILE_TYPES = {
+  '.': { walkable: true,  sprite: 'tile_grass' },
+  '#': { walkable: false, sprite: 'tile_wall' },
+  'T': { walkable: false, sprite: 'tile_tree' },
+  'W': { walkable: false, sprite: 'tile_water' },
+  'P': { walkable: true,  sprite: 'tile_path' },
+  'L': { walkable: true,  sprite: 'tile_lab' },
+  'D': { walkable: true,  sprite: 'tile_door' },
+  'N': { walkable: true,  sprite: 'tile_nexus' },
+  'F': { walkable: true,  sprite: 'tile_foundry' },
+};
+
+function renderMap() {
+  const map = MAPS[overworld.currentMap];
+  if (!map) return;
+  const camX = overworld.camera.x;
+  const camY = overworld.camera.y;
+  const startCol = Math.max(0, Math.floor(camX / TILE));
+  const startRow = Math.max(0, Math.floor(camY / TILE));
+  const endCol = Math.min(map.width, startCol + Math.ceil(GAME_W / TILE) + 1);
+  const endRow = Math.min(map.height, startRow + Math.ceil(GAME_H / TILE) + 1);
+
+  for (let row = startRow; row < endRow; row++) {
+    for (let col = startCol; col < endCol; col++) {
+      const ch = map.data[row][col];
+      const tt = TILE_TYPES[ch];
+      if (tt) {
+        drawSprite(tt.sprite, col * TILE - camX, row * TILE - camY);
+      }
+    }
+  }
+}
+
+function updateCamera() {
+  const map = MAPS[overworld.currentMap];
+  if (!map) return;
+  // Center camera on player
+  overworld.camera.x = game.player.x - GAME_W / 2 + TILE / 2;
+  overworld.camera.y = game.player.y - GAME_H / 2 + TILE / 2;
+  // Clamp to map bounds
+  overworld.camera.x = Math.max(0, Math.min(overworld.camera.x, map.width * TILE - GAME_W));
+  overworld.camera.y = Math.max(0, Math.min(overworld.camera.y, map.height * TILE - GAME_H));
+}
+
+// 5b: Player movement & collision
+function getTile(mapId, col, row) {
+  const map = MAPS[mapId];
+  if (!map || row < 0 || row >= map.height || col < 0 || col >= map.width) return '#';
+  return map.data[row][col];
+}
+
+function isWalkable(mapId, col, row) {
+  const ch = getTile(mapId, col, row);
+  const tt = TILE_TYPES[ch];
+  return tt ? tt.walkable : false;
+}
+
+function updatePlayerMovement() {
+  // Block input during transitions
+  if (transition.active) return;
+
+  if (overworld.moving) {
+    overworld.moveTimer -= game.dt;
+    if (overworld.moveTimer <= 0 || overworld.moveTimer > 1) {
+      overworld.moving = false;
+      overworld.moveTimer = 0;
+    }
+    return;
+  }
+
+  let dx = 0, dy = 0, dir = game.player.dir;
+  if (upHeld()) { dy = -1; dir = 1; }
+  else if (downHeld()) { dy = 1; dir = 0; }
+  else if (leftHeld()) { dx = -1; dir = 2; }
+  else if (rightHeld()) { dx = 1; dir = 3; }
+
+  game.player.dir = dir;
+
+  if (dx !== 0 || dy !== 0) {
+    const col = Math.floor(game.player.x / TILE) + dx;
+    const row = Math.floor(game.player.y / TILE) + dy;
+
+    // Check NPC collision — only check NPCs on the current map
+    const npcBlock = overworld.npcs.some(n => n.col === col && n.row === row);
+
+    if (isWalkable(overworld.currentMap, col, row) && !npcBlock) {
+      game.player.x = col * TILE;
+      game.player.y = row * TILE;
+      overworld.moving = true;
+      overworld.moveTimer = overworld.moveSpeed;
+      overworld.encounterSteps++;
+
+      // Check triggers
+      checkTriggers(col, row);
+
+      // Check random encounters
+      checkRandomEncounter();
+    }
+  }
+
+  // Interact with NPCs
+  if (confirmPressed()) {
+    const dirs = [[0,1],[0,-1],[-1,0],[1,0]];
+    const d = dirs[game.player.dir];
+    const fc = Math.floor(game.player.x / TILE) + d[0];
+    const fr = Math.floor(game.player.y / TILE) + d[1];
+    const npc = overworld.npcs.find(n => n.col === fc && n.row === fr);
+    if (npc && npc.dialogue) {
+      startDialogue(npc.dialogue, { bgRender: renderOverworld, returnState: STATE.OVERWORLD, onComplete: npc.onComplete || null });
+    }
+  }
+}
+
+function checkTriggers(col, row) {
+  const map = MAPS[overworld.currentMap];
+  if (!map || !map.triggers) return;
+  for (const t of map.triggers) {
+    if (t.col === col && t.row === row) {
+      if (t.type === 'transition') {
+        if (transition.active) return;
+        const target = t.target, tx = t.targetX, ty = t.targetY;
+        changeStateWithFade(STATE.OVERWORLD, () => {
+          overworld.currentMap = target;
+          game.player.x = tx * TILE;
+          game.player.y = ty * TILE;
+          overworld.encounterSteps = 0;
+          overworld.moving = false;
+        });
+      } else if (t.type === 'event' && !t.done) {
+        t.done = true;
+        if (t.action) t.action();
+      }
+    }
+  }
+}
+
+function checkRandomEncounter() {
+  const map = MAPS[overworld.currentMap];
+  if (!map || !map.encounters || map.encounters.length === 0) return;
+  if (overworld.encounterSteps >= overworld.encounterRate) {
+    if (Math.random() < 0.35) {
+      overworld.encounterSteps = 0;
+      const enc = map.encounters[Math.floor(Math.random() * map.encounters.length)];
+      startBattle(enc.id, enc.level || 2);
+    }
+  }
+}
+
+// Placeholder for battle start (will be built in Task 7)
+function startBattle(enemyId, level) {
+  // Will be replaced in Task 7
+  console.log('Battle:', enemyId, level);
+}
+
+function renderPlayer() {
+  const dirs = ['player_down', 'player_up', 'player_left', 'player_right'];
+  const px = game.player.x - overworld.camera.x;
+  const py = game.player.y - overworld.camera.y;
+  // Bob animation when moving
+  const bob = overworld.moving ? Math.sin(game.frame * 0.3) * 1 : 0;
+  drawSpriteScaled(dirs[game.player.dir], px, py + bob, TILE, TILE);
+}
+
+function renderNPCs() {
+  for (const npc of overworld.npcs) {
+    const px = npc.col * TILE - overworld.camera.x;
+    const py = npc.row * TILE - overworld.camera.y;
+    if (px > -TILE && px < GAME_W + TILE && py > -TILE && py < GAME_H + TILE) {
+      drawSpriteScaled(npc.sprite, px, py, TILE, TILE);
+    }
+  }
+}
+
+function renderHUD() {
+  // Creature info top-left
+  if (game.player.creature) {
+    drawRect(2, 2, 90, 20, 'rgba(10, 10, 26, 0.8)');
+    drawBorder(2, 2, 90, 20, PAL.cyan);
+    drawText(game.player.creature.name, 6, 4, PAL.white);
+    drawText('Lv' + game.player.creature.level, 6, 13, PAL.gold);
+    // HP bar
+    const hpPct = game.player.creature.hp / game.player.creature.maxHp;
+    drawRect(30, 14, 56, 5, PAL.dark);
+    drawRect(30, 14, Math.floor(56 * hpPct), 5, hpPct > 0.5 ? PAL.green : hpPct > 0.25 ? PAL.yellow : PAL.red);
+  }
+  // Area name top-right
+  const map = MAPS[overworld.currentMap];
+  if (map) {
+    const nameW = map.name.length * 5 + 12;
+    drawRect(GAME_W - nameW - 2, 2, nameW, 14, 'rgba(10, 10, 26, 0.8)');
+    drawBorder(GAME_W - nameW - 2, 2, nameW, 14, PAL.grey);
+    drawText(map.name, GAME_W - nameW + 4, 4, PAL.white);
+  }
+  // Diamond fragments
+  if (game.player.diamondFragments > 0) {
+    drawSpriteScaled('diamond_fragment', 2, 26, 10, 10);
+    drawText('x' + game.player.diamondFragments, 14, 27, PAL.diamond);
+  }
+}
+
+// 5c: Map definitions
+MAPS.lab = {
+  name: "Rafa's Lab",
+  width: 16, height: 14,
+  data: [
+    '################',
+    '################',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLLLLLLLL##',
+    '##LLLLLDDLLLLL##',
+    '######DD########',
+    '######PP########',
+  ],
+  triggers: [
+    { col: 7, row: 13, type: 'transition', target: 'forest', targetX: 8, targetY: 1 },
+    { col: 6, row: 13, type: 'transition', target: 'forest', targetX: 7, targetY: 1 },
+    { col: 6, row: 11, type: 'transition', target: 'forest', targetX: 7, targetY: 1 },
+    { col: 7, row: 11, type: 'transition', target: 'forest', targetX: 8, targetY: 1 },
+  ],
+  encounters: [],
+};
+
+MAPS.forest = {
+  name: 'Fragment Forest',
+  width: 20, height: 20,
+  data: [
+    'TTTTTTTTPPPTTTTTTTTTT',
+    'TTTTTTTTPPPTTTTTTTTTT',
+    'TTT...TPPPTTT....TTT',
+    'TT......PPP.......TT',
+    'T.......PPP........T',
+    'T..TT...PPP...TT...T',
+    'T..TT...PPP...TT...T',
+    'T.......PPP........T',
+    'T....PPPPPPPPPP....T',
+    'T....P........P....T',
+    'T....P........P....T',
+    'T....PPPPPPPPPP....T',
+    'T.......PPP........T',
+    'T..TT...PPP...TT...T',
+    'T..TT...PPP...TT...T',
+    'T.......PPP........T',
+    'TT......PPP.......TT',
+    'TTT..TTTPPPTTTT..TTT',
+    'TTTTTTTTTPPTTTTTTTTT',
+    'TTTTTTTTTPPTTTTTTTTT',
+  ],
+  triggers: [
+    { col: 8, row: 0, type: 'transition', target: 'lab', targetX: 7, targetY: 10 },
+    { col: 9, row: 0, type: 'transition', target: 'lab', targetX: 7, targetY: 10 },
+    { col: 7, row: 0, type: 'transition', target: 'lab', targetX: 6, targetY: 10 },
+    // South exit to nexus
+    { col: 9, row: 19, type: 'transition', target: 'nexus', targetX: 8, targetY: 1 },
+    { col: 8, row: 19, type: 'transition', target: 'nexus', targetX: 7, targetY: 1 },
+  ],
+  encounters: [
+    { id: 'csv_goblin', level: 2 },
+    { id: 'csv_goblin', level: 3 },
+    { id: 'legacy_api', level: 2 },
+    { id: 'duplicate_sprite', level: 3 },
+  ],
+};
+
+MAPS.nexus = {
+  name: 'CDP Nexus',
+  width: 18, height: 16,
+  data: [
+    '######PPPP########',
+    '######PPPP########',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNNNNNNNNN##',
+    '##NNNNNNDDNNNNNN##',
+    '########DD########',
+    '########PP########',
+  ],
+  triggers: [
+    { col: 7, row: 0, type: 'transition', target: 'forest', targetX: 8, targetY: 18 },
+    { col: 8, row: 0, type: 'transition', target: 'forest', targetX: 9, targetY: 18 },
+    { col: 6, row: 0, type: 'transition', target: 'forest', targetX: 7, targetY: 18 },
+    // South exit to foundry
+    { col: 8, row: 15, type: 'transition', target: 'foundry', targetX: 8, targetY: 1 },
+    { col: 9, row: 15, type: 'transition', target: 'foundry', targetX: 9, targetY: 1 },
+  ],
+  encounters: [
+    { id: 'duplicate_sprite', level: 4 },
+    { id: 'legacy_api', level: 4 },
+    { id: 'csv_goblin', level: 5 },
+  ],
+};
+
+MAPS.foundry = {
+  name: 'Agent Foundry',
+  width: 18, height: 16,
+  data: [
+    '######PPPP########',
+    '######PPPP########',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##FFFFFFFFFFFF####',
+    '##################',
+    '##################',
+  ],
+  triggers: [
+    { col: 7, row: 0, type: 'transition', target: 'nexus', targetX: 8, targetY: 13 },
+    { col: 8, row: 0, type: 'transition', target: 'nexus', targetX: 9, targetY: 13 },
+  ],
+  encounters: [],
+};
+
+// 5d & 5e: Overworld state handlers
+function renderOverworld() {
+  renderMap();
+  // Ambient floating particles
+  for (let i = 0; i < 8; i++) {
+    const px = ((i * 97 + game.frame * 0.2) % (GAME_W + 20)) - 10;
+    const py = ((i * 53 + game.frame * 0.08 + Math.sin(game.frame * 0.015 + i * 2) * 12) % GAME_H);
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(125,249,255,0.3)' : 'rgba(255,215,0,0.2)';
+    ctx.fillRect(Math.floor(px), Math.floor(py), 1, 1);
+  }
+  renderNPCs();
+  renderPlayer();
+  renderHUD();
+}
+
+function updateOverworld() {
+  updatePlayerMovement();
+  updateCamera();
+}
+
+// Replace initOverworld with proper version
+function initOverworld() {
+  overworld.currentMap = 'lab';
+  game.player.x = 7 * TILE;
+  game.player.y = 9 * TILE;
+  game.player.dir = 0;
+  overworld.npcs = [];
+  updateCamera();
+}
+
+stateHandlers[STATE.OVERWORLD] = { update: updateOverworld, render: renderOverworld };
+
+// --- 6: Stage 1 - Fragment Forest ---
+
+// 6a: Forest entry event & Rafa radio message
+const forestFlags = {
+  entered: false,
+  battlesWon: 0,
+  battlesNeeded: 3, // win 3 battles to get Diamond Fragment
+  fragmentCollected: false,
+  lassoCompleted: false,
+};
+
+// Add entry trigger to forest map
+MAPS.forest.triggers.push({
+  col: 8, row: 2, type: 'event', done: false,
+  action: () => {
+    if (!forestFlags.entered) {
+      forestFlags.entered = true;
+      startDialogue([
+        { text: '[ RADIO CRACKLE ]', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'You have entered Fragment Forest. Data silos have corrupted this place.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Wild data creatures roam here... CSV Goblins, Legacy APIs, and Duplicate Sprites.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Use your signal creature to battle them. Defeat 3 to collect the Diamond Fragment.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Remember: Signals alone are noise. Context makes them powerful.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+    }
+  }
+});
+
+// Also trigger on adjacent tiles
+for (const r of [2, 3]) {
+  for (const c of [7, 9]) {
+    MAPS.forest.triggers.push({
+      col: c, row: r, type: 'event', done: false,
+      action: () => {
+        if (!forestFlags.entered) {
+          forestFlags.entered = true;
+          // Find and trigger the main entry event
+          const mainTrigger = MAPS.forest.triggers.find(t => t.col === 8 && t.row === 2 && t.type === 'event');
+          if (mainTrigger && mainTrigger.action) mainTrigger.action();
+        }
+      }
+    });
+  }
+}
+
+// 6b: Identity Lasso mini-mechanic
+// After winning a battle in the forest, player plays a quick signal-linking game
+const lasso = {
+  active: false,
+  signals: [],    // Signals to connect
+  cursor: 0,      // Current selection
+  linked: [],     // Which signals are linked
+  timer: 0,
+  complete: false,
+};
+
+const SIGNAL_TYPES = ['Email', 'Purchase', 'Browse', 'App', 'Social'];
+const SIGNAL_COLORS = [PAL.cyan, PAL.green, PAL.purple, PAL.orange, PAL.pink];
+
+function startLassoMiniGame() {
+  lasso.active = true;
+  lasso.complete = false;
+  lasso.cursor = 0;
+  lasso.timer = 0;
+  // Pick 3-4 random signals to link
+  const count = 3 + Math.floor(Math.random() * 2);
+  lasso.signals = [];
+  lasso.linked = [];
+  const used = new Set();
+  for (let i = 0; i < count; i++) {
+    let idx;
+    do { idx = Math.floor(Math.random() * SIGNAL_TYPES.length); } while (used.has(idx));
+    used.add(idx);
+    lasso.signals.push({ name: SIGNAL_TYPES[idx], color: SIGNAL_COLORS[idx], x: 40 + i * 50, y: 80 + Math.sin(i * 1.5) * 20 });
+    lasso.linked.push(false);
+  }
+  changeState(STATE.CUTSCENE);
+}
+
+function updateLassoMiniGame() {
+  if (!lasso.active) return;
+  lasso.timer += game.dt;
+
+  if (lasso.complete) {
+    if (confirmPressed()) {
+      lasso.active = false;
+      forestFlags.lassoCompleted = true;
+      changeState(STATE.OVERWORLD);
+      // Check if we should give Diamond Fragment
+      if (forestFlags.battlesWon >= forestFlags.battlesNeeded && !forestFlags.fragmentCollected) {
+        forestFlags.fragmentCollected = true;
+        game.player.diamondFragments++;
+        setTimeout(() => {
+          startDialogue([
+            { text: '[ DIAMOND FRAGMENT COLLECTED! ]' },
+            { text: 'You found a Diamond Fragment! The scattered signals are beginning to unify.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+            { text: 'Head south to the CDP Nexus. It is time to build the Diamond Record.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+          ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+        }, 100);
+      }
+    }
+    return;
+  }
+
+  // Navigate signals
+  if (rightPressed()) lasso.cursor = (lasso.cursor + 1) % lasso.signals.length;
+  if (leftPressed()) lasso.cursor = (lasso.cursor - 1 + lasso.signals.length) % lasso.signals.length;
+
+  // Link current signal
+  if (confirmPressed() && !lasso.linked[lasso.cursor]) {
+    lasso.linked[lasso.cursor] = true;
+    // Check if all linked
+    if (lasso.linked.every(l => l)) {
+      lasso.complete = true;
+    }
+  }
+}
+
+function renderLassoMiniGame() {
+  if (!lasso.active) return;
+
+  // Dark bg
+  drawRect(0, 0, GAME_W, GAME_H, 'rgba(10, 10, 26, 0.95)');
+
+  // Title
+  drawTextCentered('IDENTITY LASSO', 20, PAL.gold, 2);
+  drawTextCentered('Link the scattered signals!', 42, PAL.white);
+
+  // Draw signals as floating nodes
+  for (let i = 0; i < lasso.signals.length; i++) {
+    const s = lasso.signals[i];
+    const bobY = Math.sin(game.frame * 0.05 + i) * 5;
+    const x = s.x;
+    const y = s.y + bobY;
+
+    // Draw connection line if linked
+    if (lasso.linked[i] && i > 0) {
+      const prev = lasso.signals[i - 1];
+      const prevBob = Math.sin(game.frame * 0.05 + (i - 1)) * 5;
+      ctx.strokeStyle = PAL.diamond;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(prev.x + 15, prev.y + prevBob + 10);
+      ctx.lineTo(x + 15, y + 10);
+      ctx.stroke();
+    }
+
+    // Node circle
+    const selected = (i === lasso.cursor);
+    drawRect(x, y, 30, 20, lasso.linked[i] ? s.color : PAL.dark);
+    drawBorder(x, y, 30, 20, selected ? PAL.gold : (lasso.linked[i] ? s.color : PAL.grey), selected ? 2 : 1);
+    drawText(s.name.substring(0, 5), x + 2, y + 6, lasso.linked[i] ? PAL.white : PAL.grey);
+
+    // Cursor indicator
+    if (selected && !lasso.linked[i]) {
+      if (Math.sin(game.frame * 0.1) > 0) {
+        drawText('v', x + 12, y - 10, PAL.gold);
+      }
+    }
+
+    // Check mark if linked
+    if (lasso.linked[i]) {
+      drawText('OK', x + 10, y - 10, PAL.green);
+    }
+  }
+
+  // Instructions
+  if (!lasso.complete) {
+    drawTextCentered('< > to select, ENTER to link', 140, PAL.grey);
+    const progress = lasso.linked.filter(l => l).length;
+    drawTextCentered(`Signals linked: ${progress}/${lasso.signals.length}`, 160, PAL.cyan);
+  } else {
+    drawTextCentered('All signals unified!', 140, PAL.gold);
+    drawTextCentered('Identity resolved! Press ENTER', 160, PAL.diamond);
+  }
+}
+
+// 6c: Hook battle wins to forest progress
+// This function will be called from the battle system when player wins
+function onForestBattleWin() {
+  if (overworld.currentMap === 'forest' && !forestFlags.fragmentCollected) {
+    forestFlags.battlesWon++;
+    // After winning, sometimes trigger lasso mini-game
+    if (forestFlags.battlesWon <= forestFlags.battlesNeeded) {
+      setTimeout(() => { startLassoMiniGame(); }, 200);
+    }
+  }
+}
+
+// Gate: block nexus entrance until fragment is collected
+const originalForestSouthTriggers = MAPS.forest.triggers.filter(
+  t => t.type === 'transition' && t.target === 'nexus'
+);
+// Replace south exit triggers with gated versions
+for (const t of originalForestSouthTriggers) {
+  const idx = MAPS.forest.triggers.indexOf(t);
+  MAPS.forest.triggers[idx] = {
+    col: t.col, row: t.row, type: 'transition', target: t.target, targetX: t.targetX, targetY: t.targetY,
+    get blocked() { return !forestFlags.fragmentCollected; },
+  };
+}
+
+// Override checkTriggers to support blocked triggers
+const _originalCheckTriggers = checkTriggers;
+checkTriggers = function(col, row) {
+  const map = MAPS[overworld.currentMap];
+  if (!map || !map.triggers) return;
+  for (const t of map.triggers) {
+    if (t.col === col && t.row === row) {
+      if (t.blocked) {
+        startDialogue([
+          { text: 'The path ahead is blocked by data corruption. Defeat more wild creatures first!' },
+        ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+        // Move player back
+        const dirs = [[0,-1],[0,1],[1,0],[-1,0]];
+        const d = dirs[game.player.dir];
+        game.player.x -= d[0] * TILE;
+        game.player.y -= d[1] * TILE;
+        return;
+      }
+      if (t.type === 'transition') {
+        if (transition.active) return;
+        const target = t.target, tx = t.targetX, ty = t.targetY;
+        changeStateWithFade(STATE.OVERWORLD, () => {
+          overworld.currentMap = target;
+          game.player.x = tx * TILE;
+          game.player.y = ty * TILE;
+          overworld.encounterSteps = 0;
+          overworld.moving = false;
+        });
+      } else if (t.type === 'event' && !t.done) {
+        t.done = true;
+        if (t.action) t.action();
+      }
+    }
+  }
+};
+
+// Wire cutscene state to handle lasso mini-game
+stateHandlers[STATE.CUTSCENE] = {
+  update: () => { if (lasso.active) updateLassoMiniGame(); },
+  render: () => { if (lasso.active) renderLassoMiniGame(); },
+};
+
+// --- 7: Turn-Based Battle System ---
+
+// 7a: Battle state & data
+const battle = {
+  active: false,
+  player: null,       // player creature instance
+  enemy: null,        // enemy creature instance
+  phase: 'intro',     // intro, select, playerTurn, enemyTurn, result
+  moveIndex: 0,       // selected move
+  turnTimer: 0,
+  message: '',
+  messageTimer: 0,
+  flashTimer: 0,
+  flashTarget: null,  // 'player' or 'enemy'
+  shakeTimer: 0,
+  shakeTarget: null,
+  result: null,       // 'win' or 'lose'
+  xpGained: 0,
+  isBoss: false,
+  onWin: null,        // callback after win
+  onLose: null,       // callback after lose
+  introTimer: 0,
+};
+
+// 7f: Replace placeholder startBattle
+startBattle = function(enemyId, level, options = {}) {
+  battle.active = true;
+  battle.player = game.player.creature;
+  battle.enemy = createCreature(enemyId, level);
+  battle.phase = 'intro';
+  battle.moveIndex = 0;
+  battle.message = `A wild ${battle.enemy.name} appeared!`;
+  battle.messageTimer = 1.5;
+  battle.result = null;
+  battle.flashTimer = 0;
+  battle.shakeTimer = 0;
+  battle.isBoss = options.isBoss || false;
+  battle.onWin = options.onWin || null;
+  battle.onLose = options.onLose || null;
+  battle.introTimer = 0;
+  // Battle entry flash
+  transition.active = true;
+  transition.alpha = 1;
+  transition.fadeIn = true;
+  transition.midCallback = null;
+  changeState(STATE.BATTLE);
+};
+
+// 7d: Damage calculation
+function calcDamage(attacker, move, defender) {
+  const baseDmg = move.power;
+  const atkStat = attacker.atk;
+  const defStat = defender.def;
+  const dmg = Math.max(1, Math.floor((baseDmg * atkStat / defStat) * (0.85 + Math.random() * 0.3)));
+  return dmg;
+}
+
+// 7e: Enemy AI
+function enemyChooseMove() {
+  const moves = battle.enemy.moves;
+  return moves[Math.floor(Math.random() * moves.length)];
+}
+
+function showBattleMessage(msg, duration = 1.2) {
+  battle.message = msg;
+  battle.messageTimer = duration;
+}
+
+function triggerFlash(target, duration = 0.3) {
+  battle.flashTarget = target;
+  battle.flashTimer = duration;
+}
+
+function triggerShake(target, duration = 0.25) {
+  battle.shakeTarget = target;
+  battle.shakeTimer = duration;
+}
+
+// 7b & 7c & 7d & 7e: Battle update
+function updateBattle() {
+  if (!battle.active) return;
+
+  // Timers
+  if (battle.flashTimer > 0) battle.flashTimer -= game.dt;
+  if (battle.shakeTimer > 0) battle.shakeTimer -= game.dt;
+
+  switch (battle.phase) {
+    case 'intro':
+      battle.introTimer += game.dt;
+      if (battle.introTimer > 1.5 || confirmPressed()) {
+        battle.phase = 'select';
+        battle.message = '';
+      }
+      break;
+
+    case 'select':
+      // Move selection
+      if (rightPressed()) battle.moveIndex = (battle.moveIndex + 1) % battle.player.moves.length;
+      if (leftPressed()) battle.moveIndex = (battle.moveIndex - 1 + battle.player.moves.length) % battle.player.moves.length;
+      if (downPressed()) battle.moveIndex = Math.min(battle.moveIndex + 2, battle.player.moves.length - 1);
+      if (upPressed()) battle.moveIndex = Math.max(battle.moveIndex - 2, 0);
+
+      if (confirmPressed()) {
+        // Determine turn order by speed
+        const playerMove = battle.player.moves[battle.moveIndex];
+        const enemyMove = enemyChooseMove();
+
+        if (battle.player.spd >= battle.enemy.spd) {
+          battle.phase = 'playerTurn';
+          battle._playerMove = playerMove;
+          battle._enemyMove = enemyMove;
+          executePlayerTurn();
+        } else {
+          battle.phase = 'enemyTurn';
+          battle._playerMove = playerMove;
+          battle._enemyMove = enemyMove;
+          executeEnemyTurn();
+        }
+      }
+      break;
+
+    case 'playerTurn':
+      battle.turnTimer -= game.dt;
+      if (battle.turnTimer <= 0) {
+        // Check if enemy fainted
+        if (battle.enemy.hp <= 0) {
+          battle.enemy.hp = 0;
+          battle.phase = 'result';
+          battle.result = 'win';
+          battle.xpGained = Math.floor(battle.enemy.level * 12 + 15);
+          showBattleMessage(`${battle.enemy.name} was defeated!`, 1.5);
+          battle.turnTimer = 1.5;
+        } else {
+          // Enemy's turn
+          battle.phase = 'enemyTurn';
+          executeEnemyTurn();
+        }
+      }
+      break;
+
+    case 'enemyTurn':
+      battle.turnTimer -= game.dt;
+      if (battle.turnTimer <= 0) {
+        // Check if player fainted
+        if (battle.player.hp <= 0) {
+          battle.player.hp = 0;
+          battle.phase = 'result';
+          battle.result = 'lose';
+          showBattleMessage(`${battle.player.name} fainted!`, 1.5);
+          battle.turnTimer = 1.5;
+        } else if (battle._playerMove && battle.phase === 'enemyTurn') {
+          // If enemy went first, now player goes
+          battle.phase = 'playerTurn';
+          executePlayerTurn();
+        } else {
+          // Back to select
+          battle.phase = 'select';
+          battle.message = '';
+        }
+      }
+      break;
+
+    case 'result':
+      battle.turnTimer -= game.dt;
+      if (battle.turnTimer <= 0 || confirmPressed()) {
+        if (battle.result === 'win') {
+          // Award XP
+          battle.player.xp += battle.xpGained;
+          // Heal: full heal after boss, partial after regular
+          if (battle.isBoss) {
+            battle.player.hp = battle.player.maxHp;
+          } else {
+            battle.player.hp = Math.min(battle.player.maxHp, battle.player.hp + Math.floor(battle.player.maxHp * 0.25));
+          }
+          battle.active = false;
+          changeState(STATE.OVERWORLD);
+          // Check level up
+          checkLevelUp();
+          // Forest battle tracking
+          onForestBattleWin();
+          // Custom win callback
+          if (battle.onWin) battle.onWin();
+        } else {
+          // Lose - heal and return
+          battle.active = false;
+          battle.player.hp = Math.floor(battle.player.maxHp * 0.75);
+          changeState(STATE.OVERWORLD);
+          startDialogue([
+            { text: 'Your signal creature needs to recover... Try again!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+          ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+          if (battle.onLose) battle.onLose();
+        }
+      }
+      break;
+  }
+}
+
+function executePlayerTurn() {
+  const move = battle._playerMove;
+  const dmg = calcDamage(battle.player, move, battle.enemy);
+  battle.enemy.hp = Math.max(0, battle.enemy.hp - dmg);
+  showBattleMessage(`${battle.player.name} used ${move.name}! -${dmg} HP`);
+  triggerFlash('enemy');
+  triggerShake('enemy');
+  battle.turnTimer = 1.2;
+  battle._playerMove = null; // Mark as executed
+}
+
+function executeEnemyTurn() {
+  const move = battle._enemyMove;
+  const dmg = calcDamage(battle.enemy, move, battle.player);
+  battle.player.hp = Math.max(0, battle.player.hp - dmg);
+  showBattleMessage(`${battle.enemy.name} used ${move.name}! -${dmg} HP`);
+  triggerFlash('player');
+  triggerShake('player');
+  battle.turnTimer = 1.2;
+  battle._enemyMove = null; // Mark as executed
+}
+
+// Level up check
+// --- 8: Signal Creature Evolution ---
+
+// 8a: Evolution state
+const evolution = {
+  active: false,
+  creature: null,
+  oldName: '',
+  oldSprite: '',
+  newId: '',
+  newName: '',
+  newSprite: '',
+  phase: 'flash',  // flash, transform, reveal, done
+  timer: 0,
+  flashCount: 0,
+};
+
+function checkLevelUp() {
+  const c = game.player.creature;
+  let leveled = false;
+  while (c.xp >= c.xpToNext) {
+    c.xp -= c.xpToNext;
+    c.level++;
+    c.xpToNext = c.level * 20;
+    leveled = true;
+    // Stat growth
+    const tmpl = CREATURES[c.id];
+    const mult = 1 + (c.level - 1) * 0.15;
+    c.maxHp = Math.floor(tmpl.hp * mult);
+    c.atk = Math.floor(tmpl.atk * mult);
+    c.def = Math.floor(tmpl.def * mult);
+    c.spd = Math.floor(tmpl.spd * mult);
+    c.hp = c.maxHp; // Full heal on level up
+  }
+
+  if (leveled) {
+    // Check evolution
+    const tmpl = CREATURES[c.id];
+    if (tmpl.evolvesTo && c.level >= (tmpl.evolveLevel || 999)) {
+      startEvolution(c, tmpl.evolvesTo);
+    } else {
+      startDialogue([
+        { text: `${c.name} grew to level ${c.level}!` },
+      ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+    }
+  }
+}
+
+// 8a: Trigger evolution
+function startEvolution(creature, newId) {
+  const newTmpl = CREATURES[newId];
+  if (!newTmpl) return;
+
+  evolution.active = true;
+  evolution.creature = creature;
+  evolution.oldName = creature.name;
+  evolution.oldSprite = creature.sprite;
+  evolution.newId = newId;
+  evolution.newName = newTmpl.name;
+  evolution.newSprite = newTmpl.sprite;
+  evolution.phase = 'flash';
+  evolution.timer = 0;
+  evolution.flashCount = 0;
+  changeState(STATE.EVOLUTION);
+}
+
+// 8b: Evolution animation update
+function updateEvolution() {
+  if (!evolution.active) return;
+  evolution.timer += game.dt;
+
+  switch (evolution.phase) {
+    case 'flash':
+      // Flash between old and new sprite for 2 seconds
+      evolution.flashCount = Math.floor(evolution.timer * 6); // 6 flashes per second
+      if (evolution.timer > 2.0) {
+        evolution.phase = 'transform';
+        evolution.timer = 0;
+      }
+      break;
+
+    case 'transform':
+      // White screen flash
+      if (evolution.timer > 0.5) {
+        // 8c: Apply evolution - update creature
+        const c = evolution.creature;
+        const newTmpl = CREATURES[evolution.newId];
+        c.id = evolution.newId;
+        c.name = newTmpl.name;
+        c.sprite = newTmpl.sprite;
+        c.evolvesTo = newTmpl.evolvesTo || null;
+        c.evolveLevel = newTmpl.evolveLevel || null;
+        // Update stats with new template
+        const mult = 1 + (c.level - 1) * 0.15;
+        c.maxHp = Math.floor(newTmpl.hp * mult);
+        c.atk = Math.floor(newTmpl.atk * mult);
+        c.def = Math.floor(newTmpl.def * mult);
+        c.spd = Math.floor(newTmpl.spd * mult);
+        c.hp = c.maxHp;
+        // 8c: Learn new moves
+        c.moves = [...newTmpl.moves];
+        evolution.phase = 'reveal';
+        evolution.timer = 0;
+      }
+      break;
+
+    case 'reveal':
+      // Show new creature
+      if (evolution.timer > 1.5 || confirmPressed()) {
+        evolution.phase = 'done';
+        evolution.timer = 0;
+      }
+      break;
+
+    case 'done':
+      evolution.active = false;
+      changeState(STATE.OVERWORLD);
+      startDialogue([
+        { text: `Congratulations! ${evolution.oldName} evolved into ${evolution.newName}!` },
+        { text: `${evolution.newName} learned new moves!`, speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+      break;
+  }
+}
+
+// 8b: Evolution animation render
+function renderEvolution() {
+  if (!evolution.active) return;
+
+  // Dark background with stars
+  drawRect(0, 0, GAME_W, GAME_H, PAL.black);
+  for (let i = 0; i < 30; i++) {
+    const sx = ((i * 73 + game.frame * 0.2) % GAME_W);
+    const sy = ((i * 47 + game.frame * 0.1) % GAME_H);
+    ctx.fillStyle = `rgba(125, 243, 255, ${0.3 + Math.sin(game.frame * 0.05 + i) * 0.2})`;
+    ctx.fillRect(sx, sy, 1, 1);
+  }
+
+  const cx = GAME_W / 2 - 24;
+  const cy = 60;
+
+  switch (evolution.phase) {
+    case 'flash':
+      // Alternate between old and new sprite
+      const showNew = evolution.flashCount % 2 === 1;
+      const spriteToShow = showNew ? evolution.newSprite : evolution.oldSprite;
+      // Glow effect
+      ctx.globalAlpha = 0.3;
+      drawRect(cx - 10, cy - 10, 68, 68, PAL.diamond);
+      ctx.globalAlpha = 1;
+      drawSpriteScaled(spriteToShow, cx, cy, 48, 48);
+      // Text
+      drawTextCentered('What...?', 130, PAL.white);
+      drawTextCentered(`${evolution.oldName} is evolving!`, 150, PAL.gold, 1);
+      break;
+
+    case 'transform':
+      // White flash
+      const alpha = 1 - evolution.timer * 2;
+      drawRect(0, 0, GAME_W, GAME_H, `rgba(255, 255, 255, ${Math.max(0, alpha)})`);
+      break;
+
+    case 'reveal':
+      // Show new creature with sparkles
+      drawSpriteScaled(evolution.newSprite, cx, cy, 48, 48);
+      // Diamond sparkle particles
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2 + game.frame * 0.03;
+        const dist = 30 + Math.sin(game.frame * 0.08 + i) * 10;
+        const px = GAME_W / 2 + Math.cos(angle) * dist;
+        const py = 84 + Math.sin(angle) * dist * 0.6;
+        ctx.fillStyle = i % 2 === 0 ? PAL.diamond : PAL.gold;
+        ctx.beginPath();
+        ctx.moveTo(px, py - 3);
+        ctx.lineTo(px + 2, py);
+        ctx.lineTo(px, py + 3);
+        ctx.lineTo(px - 2, py);
+        ctx.closePath();
+        ctx.fill();
+      }
+      drawTextCentered(`${evolution.newName}!`, 130, PAL.gold, 2);
+      drawTextCentered('Evolution complete!', 155, PAL.diamond);
+      drawTextCentered('Press ENTER', 180, PAL.grey);
+      break;
+  }
+}
+
+stateHandlers[STATE.EVOLUTION] = { update: updateEvolution, render: renderEvolution };
+
+// 7b: Battle rendering
+function renderBattle() {
+  // Background
+  const grad = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  grad.addColorStop(0, '#1a1a4e');
+  grad.addColorStop(1, '#0a0a2e');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+  // Diamond constellation particles
+  for (let i = 0; i < 12; i++) {
+    const sx = (i * 67 + game.frame * 0.15) % GAME_W;
+    const sy = (i * 41 + Math.sin(game.frame * 0.01 + i) * 6) % 100;
+    ctx.fillStyle = 'rgba(125,249,255,0.2)';
+    ctx.fillRect(Math.floor(sx), Math.floor(sy), 1, 1);
+  }
+
+  // Battle field line
+  drawRect(0, 100, GAME_W, 2, PAL.grey);
+  // Boss indicator
+  if (battle.isBoss) {
+    const bFlash = Math.sin(game.frame * 0.08) > 0 ? PAL.red : PAL.gold;
+    drawText('BOSS', GAME_W / 2 - 10, 104, bFlash);
+  }
+
+  // Enemy creature (top-right)
+  let ex = 170, ey = 25;
+  if (battle.shakeTimer > 0 && battle.shakeTarget === 'enemy') {
+    ex += Math.sin(game.frame * 2) * 3;
+  }
+  if (battle.flashTimer > 0 && battle.flashTarget === 'enemy') {
+    if (Math.sin(game.frame * 1.5) > 0) {
+      drawSpriteScaled(battle.enemy.sprite, ex, ey, 48, 48);
+    }
+  } else if (battle.enemy.hp > 0) {
+    drawSpriteScaled(battle.enemy.sprite, ex, ey, 48, 48);
+  }
+
+  // Enemy HP bar (top-left area)
+  drawRect(10, 10, 120, 30, 'rgba(10, 10, 26, 0.85)');
+  drawBorder(10, 10, 120, 30, PAL.red);
+  drawText(battle.enemy.name, 14, 12, PAL.white);
+  drawText('Lv' + battle.enemy.level, 100, 12, PAL.grey);
+  const eHpPct = battle.enemy.hp / battle.enemy.maxHp;
+  drawRect(14, 26, 108, 6, PAL.dark);
+  drawRect(14, 26, Math.floor(108 * eHpPct), 6, eHpPct > 0.5 ? PAL.green : eHpPct > 0.25 ? PAL.yellow : PAL.red);
+  drawText(`${battle.enemy.hp}/${battle.enemy.maxHp}`, 14, 34, PAL.grey);
+
+  // Player creature (bottom-left)
+  let px = 30, py = 70;
+  if (battle.shakeTimer > 0 && battle.shakeTarget === 'player') {
+    px += Math.sin(game.frame * 2) * 3;
+  }
+  if (battle.flashTimer > 0 && battle.flashTarget === 'player') {
+    if (Math.sin(game.frame * 1.5) > 0) {
+      drawSpriteScaled(battle.player.sprite, px, py, 48, 48);
+    }
+  } else if (battle.player.hp > 0) {
+    drawSpriteScaled(battle.player.sprite, px, py, 48, 48);
+  }
+
+  // Player HP bar (right side)
+  drawRect(130, 80, 120, 38, 'rgba(10, 10, 26, 0.85)');
+  drawBorder(130, 80, 120, 38, PAL.cyan);
+  drawText(battle.player.name, 134, 82, PAL.white);
+  drawText('Lv' + battle.player.level, 220, 82, PAL.grey);
+  const pHpPct = battle.player.hp / battle.player.maxHp;
+  drawRect(134, 96, 108, 6, PAL.dark);
+  const pHpColor = pHpPct > 0.5 ? PAL.green : pHpPct > 0.25 ? PAL.yellow : PAL.red;
+  drawRect(134, 96, Math.floor(108 * pHpPct), 6, pHpColor);
+  // Low HP pulse warning
+  if (pHpPct <= 0.25 && pHpPct > 0) {
+    const pulse = Math.sin(game.frame * 0.15) * 0.3 + 0.3;
+    ctx.fillStyle = `rgba(255,0,0,${pulse})`;
+    ctx.fillRect(130, 80, 120, 38);
+  }
+  drawText(`${battle.player.hp}/${battle.player.maxHp}`, 134, 104, PAL.grey);
+  // XP bar
+  const xpPct = battle.player.xp / battle.player.xpToNext;
+  drawRect(134, 112, 108, 3, PAL.dark);
+  drawRect(134, 112, Math.floor(108 * xpPct), 3, PAL.blue);
+
+  // Bottom section: message or move select
+  drawRect(0, 126, GAME_W, GAME_H - 126, 'rgba(10, 10, 26, 0.95)');
+  drawBorder(0, 126, GAME_W, GAME_H - 126, PAL.white);
+
+  if (battle.phase === 'select') {
+    // Move selection grid
+    drawText('Choose a move:', 8, 130, PAL.white);
+    const moves = battle.player.moves;
+    for (let i = 0; i < moves.length; i++) {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const mx = 8 + col * 124;
+      const my = 146 + row * 28;
+      const selected = (i === battle.moveIndex);
+
+      drawRect(mx, my, 118, 24, selected ? PAL.mid : PAL.dark);
+      drawBorder(mx, my, 118, 24, selected ? PAL.gold : PAL.grey);
+      drawText((selected ? '> ' : '  ') + moves[i].name, mx + 4, my + 3, selected ? PAL.gold : PAL.white);
+      drawText('PWR:' + moves[i].power, mx + 4, my + 14, PAL.grey);
+    }
+
+    // Move description
+    if (moves[battle.moveIndex]) {
+      drawText(moves[battle.moveIndex].desc, 8, 206, PAL.cyan);
+    }
+  } else {
+    // Message display
+    drawText(battle.message, 8, 140, PAL.white);
+
+    // Result details
+    if (battle.phase === 'result' && battle.result === 'win') {
+      drawText(`+${battle.xpGained} XP`, 8, 160, PAL.gold);
+      drawText('Press ENTER to continue', 8, 180, PAL.grey);
+    } else if (battle.phase === 'result' && battle.result === 'lose') {
+      drawText('Press ENTER to continue', 8, 160, PAL.grey);
+    }
+  }
+
+  // Boss indicator
+  if (battle.isBoss) {
+    drawText('BOSS', GAME_W - 40, 50, PAL.red, 1);
+  }
+}
+
+stateHandlers[STATE.BATTLE] = { update: updateBattle, render: renderBattle };
+
+// --- 9: Stage 2 - CDP Nexus ---
+
+// 9a: Nexus flags & entry event
+const nexusFlags = {
+  entered: false,
+  syndicateIntro: false,
+  fragmentoBattle: false,
+  fragmentoDefeated: false,
+  diamondRecordFormed: false,
+};
+
+// Add entry triggers to nexus map
+MAPS.nexus.triggers.push({
+  col: 8, row: 3, type: 'event', done: false,
+  action: () => {
+    if (!nexusFlags.entered) {
+      nexusFlags.entered = true;
+      startDialogue([
+        { text: 'You have reached the CDP Nexus, the heart of signal unification.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Here, scattered signals can be woven into a single Diamond Record.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'But beware... the Silos Syndicate is here. They want to keep data fragmented.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Find their leader, Captain Fragmento, and defeat him to stabilize the Diamond Record.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD, onComplete: () => {
+        // Place Fragmento NPC and syndicate grunts
+        if (!nexusFlags.syndicateIntro) {
+          nexusFlags.syndicateIntro = true;
+          placeNexusNPCs();
+        }
+      }});
+    }
+  }
+});
+
+// Adjacent triggers for entry
+for (const c of [7, 9]) {
+  MAPS.nexus.triggers.push({
+    col: c, row: 3, type: 'event', done: false,
+    action: () => {
+      if (!nexusFlags.entered) {
+        const main = MAPS.nexus.triggers.find(t => t.col === 8 && t.row === 3 && t.type === 'event');
+        if (main && main.action) main.action();
+      }
+    }
+  });
+}
+
+function placeNexusNPCs() {
+  // Syndicate grunt 1
+  overworld.npcs.push({
+    col: 5, row: 6, sprite: 'csv_goblin',
+    dialogue: [
+      { text: 'Heh heh! We are the Silos Syndicate!' },
+      { text: 'Our goal? Keep all your data in separate silos forever!' },
+      { text: 'Point solutions for everyone! No unified view! Hahaha!' },
+    ],
+  });
+  // Syndicate grunt 2
+  overworld.npcs.push({
+    col: 12, row: 6, sprite: 'legacy_api',
+    dialogue: [
+      { text: 'Why unify data when you can buy 50 different tools?' },
+      { text: 'Each one stores a tiny fragment... just how we like it!' },
+    ],
+  });
+  // Captain Fragmento - boss
+  overworld.npcs.push({
+    col: 8, row: 7, sprite: 'fragmento',
+    dialogue: [
+      { text: 'So... a Signal Tamer dares enter the CDP Nexus?', speaker: 'Capt. Fragmento' },
+      { text: 'I am Captain Fragmento, leader of the Silos Syndicate!', speaker: 'Capt. Fragmento' },
+      { text: 'We profit from chaos. Fragmented data means more point solutions to sell!', speaker: 'Capt. Fragmento' },
+      { text: 'You want to build a Diamond Record? Over my dead API!', speaker: 'Capt. Fragmento' },
+      { text: 'Prepare for battle, Signal Tamer!', speaker: 'Capt. Fragmento' },
+    ],
+    onComplete: () => {
+      if (!nexusFlags.fragmentoBattle) {
+        nexusFlags.fragmentoBattle = true;
+        // Boss battle!
+        startBattle('fragmento', 6, {
+          isBoss: true,
+          onWin: () => {
+            nexusFlags.fragmentoDefeated = true;
+            // Remove Fragmento NPC
+            overworld.npcs = overworld.npcs.filter(n => n.sprite !== 'fragmento');
+            // Diamond Record formation
+            setTimeout(() => { startDiamondRecordCutscene(); }, 200);
+          },
+        });
+      }
+    },
+  });
+}
+
+// 9c: Diamond Record formation cutscene
+function startDiamondRecordCutscene() {
+  nexusFlags.diamondRecordFormed = true;
+  game.player.hasDiamondRecord = true;
+  game.stageFlags.stage2Complete = true;
+
+  // Add Context Fusion move to player creature if not already present
+  const c = game.player.creature;
+  if (!c.moves.find(m => m.name === 'Context Fusion')) {
+    if (c.moves.length >= 4) c.moves.pop(); // Replace last move
+    c.moves.push({ name: 'Context Fusion', power: 22, desc: 'Diamond-powered blast' });
+  }
+
+  startDialogue([
+    { text: 'Captain Fragmento has been defeated!' },
+    { text: 'The scattered signals are converging...' },
+    { text: '[ THE DIAMOND RECORD IS FORMING! ]' },
+    { text: 'Signals orbit together... email, purchase, behavior, app, social...', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'They unify into a single, brilliant Diamond Record!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: `${c.name} learned Context Fusion!`, speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'The Diamond Record gives your signals true context. This is the System of Context.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'But data alone is not enough. You need intelligence.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Head south to the Agent Foundry. It is time to awaken the AI Agents.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    { text: 'Remember: Data gives you memory. Agents give you action.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+  ], {
+    bgRender: () => {
+      // Diamond formation visual
+      drawRect(0, 0, GAME_W, GAME_H, PAL.black);
+      // Orbiting signals
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2 + game.frame * 0.02;
+        const dist = 50 + Math.sin(game.frame * 0.03 + i) * 15;
+        const px = GAME_W / 2 + Math.cos(angle) * dist;
+        const py = 80 + Math.sin(angle) * dist * 0.5;
+        const colors = [PAL.cyan, PAL.green, PAL.purple, PAL.orange, PAL.pink, PAL.blue, PAL.yellow, PAL.diamond];
+        ctx.fillStyle = colors[i];
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Central diamond (growing)
+      const cx = GAME_W / 2;
+      const cy = 80;
+      const size = 15 + Math.sin(game.frame * 0.04) * 5;
+      ctx.fillStyle = PAL.gold;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - size);
+      ctx.lineTo(cx + size * 0.8, cy);
+      ctx.lineTo(cx, cy + size);
+      ctx.lineTo(cx - size * 0.8, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = PAL.white;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - size * 0.4);
+      ctx.lineTo(cx + size * 0.3, cy);
+      ctx.lineTo(cx, cy + size * 0.4);
+      ctx.lineTo(cx - size * 0.3, cy);
+      ctx.closePath();
+      ctx.fill();
+    },
+    returnState: STATE.OVERWORLD,
+  });
+}
+
+// Gate: block foundry entrance until Diamond Record is formed
+const nexusSouthTriggers = MAPS.nexus.triggers.filter(
+  t => t.type === 'transition' && t.target === 'foundry'
+);
+for (const t of nexusSouthTriggers) {
+  const idx = MAPS.nexus.triggers.indexOf(t);
+  MAPS.nexus.triggers[idx] = {
+    col: t.col, row: t.row, type: 'transition', target: t.target, targetX: t.targetX, targetY: t.targetY,
+    get blocked() { return !nexusFlags.diamondRecordFormed; },
+  };
+}
+
+// --- 10: Stage 3 - Agent Foundry ---
+
+const foundryFlags = {
+  entered: false,
+  agentChosen: null,   // 'audience', 'creative', or 'decision'
+  battleWon: false,
+  stage3Complete: false,
+  bossUnlocked: false,
+};
+
+// Agent data
+const AGENTS = {
+  audience: { name: 'Audience Agent', sprite: 'agent_audience', enemy: 'targeting_chaos', desc: 'Finds the right audience', color: PAL.blue },
+  creative: { name: 'Creative Agent', sprite: 'agent_creative', enemy: 'content_drought', desc: 'Generates engaging content', color: PAL.purple },
+  decision: { name: 'Decision Agent', sprite: 'agent_decision', enemy: 'timing_disorder', desc: 'Optimizes send timing', color: PAL.green },
+};
+
+// 10a: Foundry entry event
+MAPS.foundry.triggers.push({
+  col: 8, row: 3, type: 'event', done: false,
+  action: () => {
+    if (!foundryFlags.entered) {
+      foundryFlags.entered = true;
+      startDialogue([
+        { text: 'Welcome to the Agent Foundry!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'The Diamond Record has awakened something incredible...', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'AI Agents! Intelligent beings that turn data into action.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Data gives you memory. Agents give you action.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Three agents have emerged. Each one solves a different problem.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+        { text: 'Choose one agent to deploy!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      ], {
+        bgRender: renderOverworld,
+        onComplete: () => { startAgentSelection(); },
+      });
+    }
+  }
+});
+
+// Adjacent entry triggers
+for (const c of [7, 9]) {
+  MAPS.foundry.triggers.push({
+    col: c, row: 3, type: 'event', done: false,
+    action: () => {
+      if (!foundryFlags.entered) {
+        const main = MAPS.foundry.triggers.find(t => t.col === 8 && t.row === 3 && t.type === 'event');
+        if (main && main.action) main.action();
+      }
+    }
+  });
+}
+
+// 10a: Agent selection screen
+let agentSelection = 0;
+const AGENT_KEYS = ['audience', 'creative', 'decision'];
+
+function startAgentSelection() {
+  agentSelection = 0;
+  changeState(STATE.CUTSCENE);
+  // Override cutscene temporarily for agent selection
+  foundryFlags._selectingAgent = true;
+}
+
+function updateAgentSelection() {
+  if (rightPressed()) agentSelection = (agentSelection + 1) % 3;
+  if (leftPressed()) agentSelection = (agentSelection - 1 + 3) % 3;
+  if (confirmPressed()) {
+    const key = AGENT_KEYS[agentSelection];
+    foundryFlags.agentChosen = key;
+    foundryFlags._selectingAgent = false;
+    game.player.agents.push(key);
+    const agent = AGENTS[key];
+    startDialogue([
+      { text: `You deployed the ${agent.name}!` },
+      { text: `${agent.name}: "${agent.desc}."` },
+      { text: 'A disorder creature has appeared! Your agent must defeat it!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    ], {
+      bgRender: renderOverworld,
+      onComplete: () => {
+        // 10b: Start agent-specific battle
+        startAgentBattle(key);
+      },
+    });
+  }
+}
+
+function renderAgentSelection() {
+  // Background
+  drawRect(0, 0, GAME_W, GAME_H, PAL.black);
+
+  // Stars
+  for (let i = 0; i < 20; i++) {
+    const sx = ((i * 73 + game.frame * 0.2) % GAME_W);
+    const sy = ((i * 47 + game.frame * 0.1) % GAME_H);
+    ctx.fillStyle = `rgba(125, 243, 255, ${0.2 + Math.sin(game.frame * 0.04 + i) * 0.15})`;
+    ctx.fillRect(sx, sy, 1, 1);
+  }
+
+  // Title
+  drawTextCentered('DEPLOY AN AI AGENT', 15, PAL.gold, 2);
+  drawTextCentered('Choose your agent wisely!', 38, PAL.white);
+
+  // Three agent cards
+  for (let i = 0; i < 3; i++) {
+    const key = AGENT_KEYS[i];
+    const agent = AGENTS[key];
+    const selected = (i === agentSelection);
+    const cardW = 72;
+    const cardH = 110;
+    const cardX = 10 + i * (cardW + 8);
+    const cardY = 55;
+
+    drawRect(cardX, cardY, cardW, cardH, selected ? 'rgba(30, 30, 80, 0.95)' : 'rgba(10, 10, 26, 0.85)');
+    drawBorder(cardX, cardY, cardW, cardH, selected ? agent.color : PAL.grey, selected ? 2 : 1);
+
+    // Agent icon
+    drawSpriteScaled(agent.sprite, cardX + 28, cardY + 8, 16, 16);
+
+    // Name
+    drawText(agent.name.split(' ')[0], cardX + 4, cardY + 30, selected ? agent.color : PAL.white);
+    drawText('Agent', cardX + 4, cardY + 40, PAL.grey);
+
+    // Description
+    const words = agent.desc.split(' ');
+    let line1 = '', line2 = '';
+    for (const w of words) {
+      if (line1.length + w.length < 13) line1 += (line1 ? ' ' : '') + w;
+      else line2 += (line2 ? ' ' : '') + w;
+    }
+    drawText(line1, cardX + 4, cardY + 56, PAL.white);
+    drawText(line2, cardX + 4, cardY + 66, PAL.white);
+
+    // Enemy it defeats
+    const enemyName = CREATURES[agent.enemy].name;
+    drawText('Defeats:', cardX + 4, cardY + 82, PAL.grey);
+    drawText(enemyName, cardX + 4, cardY + 92, PAL.red);
+
+    // Selection indicator
+    if (selected && Math.sin(game.frame * 0.1) > 0) {
+      drawText('v', cardX + cardW / 2 - 3, cardY - 10, agent.color);
+    }
+  }
+
+  drawTextCentered('< > to choose, ENTER to deploy', 175, PAL.grey);
+}
+
+// 10b: Agent-specific battle
+function startAgentBattle(agentKey) {
+  const agent = AGENTS[agentKey];
+  const enemyId = agent.enemy;
+  // Give player creature a temporary power boost for agent battles
+  const c = game.player.creature;
+  c.hp = c.maxHp; // Full heal before agent battle
+
+  startBattle(enemyId, 7, {
+    isBoss: false,
+    onWin: () => {
+      foundryFlags.battleWon = true;
+      onAgentBattleWin(agentKey);
+    },
+  });
+}
+
+// 10c: Post-battle dialogue & boss unlock
+function onAgentBattleWin(agentKey) {
+  const agent = AGENTS[agentKey];
+  foundryFlags.stage3Complete = true;
+  game.stageFlags.stage3Complete = true;
+
+  setTimeout(() => {
+    startDialogue([
+      { text: `The ${agent.name} defeated ${CREATURES[agent.enemy].name}!` },
+      { text: 'Brilliant! Your AI Agent turned data into decisive action!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      { text: 'Signal creatures provide raw data. The Diamond Record provides context.', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      { text: 'And now, AI Agents provide intelligence. The trio is complete!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      { text: 'But wait... I am detecting a dark presence forming here in the Foundry...', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      { text: 'The Dark Algorithm has awakened! It wants to undo everything!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      { text: 'This is the final battle, Signal Tamer!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+      { text: 'Use everything you have learned: Signals, Diamond Record, and Agents!', speaker: 'Prof. Rafa', portrait: 'rafa_portrait' },
+    ], {
+      bgRender: renderOverworld,
+      onComplete: () => {
+        foundryFlags.bossUnlocked = true;
+        // Place Dark Algorithm boss in Foundry
+        placeDarkAlgorithmBoss();
+        changeState(STATE.OVERWORLD);
+      },
+    });
+  }, 200);
+}
+
+// Place boss NPC in foundry
+function placeDarkAlgorithmBoss() {
+  // Remove old syndicate NPCs if still there
+  overworld.npcs = overworld.npcs.filter(n => n.sprite !== 'csv_goblin' && n.sprite !== 'legacy_api');
+
+  overworld.npcs.push({
+    col: 8, row: 7, sprite: 'dark_algorithm',
+    dialogue: [
+      { text: '[ STATIC... GLITCH... ERROR... ]' },
+      { text: 'I am the Dark Algorithm. Disconnected stacks given form.', speaker: 'Dark Algorithm' },
+      { text: 'Manual workflows. Broken journeys. Siloed dashboards.', speaker: 'Dark Algorithm' },
+      { text: 'I will fragment everything you have built!', speaker: 'Dark Algorithm' },
+      { text: 'Your Diamond Record? Your Agents? I will corrupt them all!', speaker: 'Dark Algorithm' },
+    ],
+    onComplete: () => {
+      if (!game.stageFlags.bossDefeated) {
+        startBattle('dark_algorithm', 8, {
+          isBoss: true,
+          onWin: () => {
+            game.stageFlags.bossDefeated = true;
+            overworld.npcs = overworld.npcs.filter(n => n.sprite !== 'dark_algorithm');
+            setTimeout(() => { startVictorySequence(); }, 200);
+          },
+        });
+      }
+    },
+  });
+}
+
+// --- 13a: Victory Sequence ---
+const victory = {
+  phase: 'dialogue', // dialogue -> badge -> crests -> fin
+  timer: 0,
+  badgeScale: 0,
+  badgeFlash: 0,
+  crests: ['Engagement', 'Personalization', 'Creative', 'Paid Media', 'Service'],
+  crestReveal: 0,
+  crestTimer: 0,
+  starTimer: 0,
+};
+
+function startVictorySequence() {
+  victory.phase = 'dialogue';
+  victory.timer = 0;
+  victory.badgeScale = 0;
+  victory.badgeFlash = 0;
+  victory.crestReveal = 0;
+  victory.crestTimer = 0;
+  victory.starTimer = 0;
+  changeState(STATE.VICTORY);
+  startDialogue([
+    { speaker: 'Prof. Rafa', portrait: 'rafa_portrait', text: 'The Dark Algorithm has been vanquished! The data flows freely once more.' },
+    { speaker: 'Prof. Rafa', portrait: 'rafa_portrait', text: 'You unified fragmented signals into a Diamond Record...' },
+    { speaker: 'Prof. Rafa', portrait: 'rafa_portrait', text: 'You activated AI Agents to act on real-time context...' },
+    { speaker: 'Prof. Rafa', portrait: 'rafa_portrait', text: 'And you defeated the chaos that thrives on disconnected data.' },
+    { speaker: 'Prof. Rafa', portrait: 'rafa_portrait', text: 'You are no longer just a Signal Tamer.' },
+    { speaker: 'Prof. Rafa', portrait: 'rafa_portrait', text: 'You are now... a Superhuman Marketer.' },
+  ], {
+    returnState: STATE.VICTORY,
+    onComplete: () => { victory.phase = 'badge'; victory.timer = 0; },
+  });
+}
+
+function updateVictory() {
+  victory.starTimer += game.dt;
+  if (victory.phase === 'dialogue') return;
+  victory.timer += game.dt;
+  if (victory.phase === 'badge') {
+    victory.badgeScale = Math.min(1, victory.timer * 2);
+    victory.badgeFlash += game.dt * 4;
+    if (victory.timer > 2.5 && confirmPressed()) {
+      victory.phase = 'crests';
+      victory.timer = 0;
+    }
+  } else if (victory.phase === 'crests') {
+    victory.crestTimer += game.dt;
+    if (victory.crestTimer > 0.5) {
+      victory.crestTimer = 0;
+      if (victory.crestReveal < victory.crests.length) victory.crestReveal++;
+    }
+    if (victory.crestReveal >= victory.crests.length && victory.timer > 3 && confirmPressed()) {
+      victory.phase = 'fin';
+      victory.timer = 0;
+    }
+  } else if (victory.phase === 'fin') {
+    if (victory.timer > 1 && confirmPressed()) {
+      changeState(STATE.TITLE);
+    }
+  }
+}
+
+function renderVictory() {
+  // Starfield background
+  const grad = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  grad.addColorStop(0, '#0a0a2e');
+  grad.addColorStop(0.5, '#1a1a4e');
+  grad.addColorStop(1, '#0a0a2e');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+  for (let i = 0; i < 30; i++) {
+    const sx = (i * 73 + victory.starTimer * 8) % GAME_W;
+    const sy = (i * 47 + Math.sin(victory.starTimer + i) * 4) % GAME_H;
+    ctx.fillStyle = i % 3 === 0 ? '#7df9ff' : '#ffffff';
+    ctx.fillRect(Math.floor(sx), Math.floor(sy), 1, 1);
+  }
+
+  if (victory.phase === 'badge') {
+    drawText('CONTEXT CHAMPION', GAME_W / 2 - 64, 24, '#ffd700');
+    // Badge with scale animation
+    const bSize = Math.floor(32 * victory.badgeScale);
+    const bx = GAME_W / 2 - bSize / 2;
+    const by = 60;
+    if (bSize > 0) {
+      // Diamond badge shape
+      const flash = Math.sin(victory.badgeFlash) * 0.3 + 0.7;
+      const r = Math.floor(255 * flash);
+      const g = Math.floor(215 * flash);
+      ctx.fillStyle = `rgb(${r},${g},0)`;
+      // Draw diamond shape
+      ctx.beginPath();
+      ctx.moveTo(bx + bSize / 2, by);
+      ctx.lineTo(bx + bSize, by + bSize / 2);
+      ctx.lineTo(bx + bSize / 2, by + bSize);
+      ctx.lineTo(bx, by + bSize / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Inner diamond
+      const inner = bSize * 0.4;
+      const ix = GAME_W / 2 - inner / 2;
+      const iy = by + bSize / 2 - inner / 2;
+      ctx.fillStyle = '#7df9ff';
+      ctx.beginPath();
+      ctx.moveTo(ix + inner / 2, iy);
+      ctx.lineTo(ix + inner, iy + inner / 2);
+      ctx.lineTo(ix + inner / 2, iy + inner);
+      ctx.lineTo(ix, iy + inner / 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    drawText('Superhuman Marketer', GAME_W / 2 - 76, 105, '#ffffff');
+    drawText(game.player.name || 'Signal Tamer', GAME_W / 2 - 44, 120, '#7df9ff');
+    if (victory.timer > 2.5) {
+      const blink = Math.floor(victory.timer * 3) % 2;
+      if (blink) drawText('Press Z to continue', GAME_W / 2 - 70, GAME_H - 20, '#aaaaaa');
+    }
+  } else if (victory.phase === 'crests') {
+    drawText('AI SUITE CRESTS', GAME_W / 2 - 56, 16, '#ffd700');
+    const crestColors = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c084fc'];
+    for (let i = 0; i < victory.crestReveal; i++) {
+      const cx = 30 + (i % 3) * 74;
+      const cy = 44 + Math.floor(i / 3) * 72;
+      // Crest shape - small shield
+      ctx.fillStyle = crestColors[i];
+      ctx.fillRect(cx, cy, 48, 40);
+      ctx.fillStyle = '#0a0a2e';
+      ctx.fillRect(cx + 2, cy + 2, 44, 36);
+      ctx.fillStyle = crestColors[i];
+      ctx.fillRect(cx + 6, cy + 6, 36, 28);
+      // Diamond center
+      ctx.fillStyle = '#ffffff';
+      const dx = cx + 24, dy = cy + 20;
+      ctx.fillRect(dx - 1, dy - 4, 2, 2);
+      ctx.fillRect(dx - 3, dy - 2, 6, 2);
+      ctx.fillRect(dx - 1, dy, 2, 2);
+      drawText(victory.crests[i], cx + 2, cy + 42, crestColors[i]);
+    }
+    if (victory.crestReveal >= victory.crests.length && victory.timer > 3) {
+      const blink = Math.floor(victory.timer * 3) % 2;
+      if (blink) drawText('Press Z to continue', GAME_W / 2 - 70, GAME_H - 20, '#aaaaaa');
+    }
+  } else if (victory.phase === 'fin') {
+    drawText('TREASURE DATA', GAME_W / 2 - 52, GAME_H / 2 - 30, '#ffd700');
+    drawText('DIAMOND QUEST', GAME_W / 2 - 52, GAME_H / 2 - 16, '#7df9ff');
+    drawText('Thanks for playing!', GAME_W / 2 - 70, GAME_H / 2 + 10, '#ffffff');
+    drawText('treasuredata.com', GAME_W / 2 - 58, GAME_H / 2 + 30, '#aaaaaa');
+    if (victory.timer > 1) {
+      const blink = Math.floor(victory.timer * 3) % 2;
+      if (blink) drawText('Press Z for title', GAME_W / 2 - 60, GAME_H - 20, '#aaaaaa');
+    }
+  }
+}
+
+// Wire up VICTORY state
+stateHandlers[STATE.VICTORY] = { update: updateVictory, render: renderVictory };
+
+// Update cutscene state to handle agent selection
+const _prevCutsceneUpdate = stateHandlers[STATE.CUTSCENE].update;
+const _prevCutsceneRender = stateHandlers[STATE.CUTSCENE].render;
+stateHandlers[STATE.CUTSCENE] = {
+  update: () => {
+    if (foundryFlags._selectingAgent) { updateAgentSelection(); }
+    else { _prevCutsceneUpdate(); }
+  },
+  render: () => {
+    if (foundryFlags._selectingAgent) { renderAgentSelection(); }
+    else { _prevCutsceneRender(); }
+  },
+};
+
+// --- 1g: Title Screen ---
+let titleBlink = 0;
+
+function updateTitle() {
+  titleBlink += game.dt;
+  if (confirmPressed()) {
+    changeState(STATE.INTRO);
+  }
+}
+
+function renderTitle() {
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  grad.addColorStop(0, '#0a0a2e');
+  grad.addColorStop(0.5, '#1a1a5e');
+  grad.addColorStop(1, '#0a0a2e');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // Floating diamond particles
+  for (let i = 0; i < 20; i++) {
+    const px = ((i * 73 + game.frame * 0.3) % GAME_W);
+    const py = ((i * 47 + game.frame * 0.15 + Math.sin(game.frame * 0.02 + i) * 10) % GAME_H);
+    const alpha = 0.2 + Math.sin(game.frame * 0.03 + i) * 0.15;
+    ctx.fillStyle = `rgba(125, 243, 255, ${alpha})`;
+    // Draw tiny diamond shape
+    ctx.beginPath();
+    ctx.moveTo(px, py - 2);
+    ctx.lineTo(px + 2, py);
+    ctx.lineTo(px, py + 2);
+    ctx.lineTo(px - 2, py);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Title
+  drawTextCentered('TREASURE DATA', 50, PAL.diamond, 2);
+  drawTextCentered('DIAMOND QUEST', 75, PAL.gold, 2);
+
+  // Decorative diamond
+  const cx = GAME_W / 2;
+  const cy = 120;
+  const pulse = Math.sin(game.frame * 0.05) * 3;
+  ctx.fillStyle = PAL.diamond;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 12 - pulse);
+  ctx.lineTo(cx + 10 + pulse, cy);
+  ctx.lineTo(cx, cy + 12 + pulse);
+  ctx.lineTo(cx - 10 - pulse, cy);
+  ctx.closePath();
+  ctx.fill();
+  // Inner glow
+  ctx.fillStyle = PAL.white;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 5);
+  ctx.lineTo(cx + 4, cy);
+  ctx.lineTo(cx, cy + 5);
+  ctx.lineTo(cx - 4, cy);
+  ctx.closePath();
+  ctx.fill();
+
+  // Blinking prompt
+  if (Math.sin(titleBlink * 3) > 0) {
+    drawTextCentered('Press ENTER to start', 170, PAL.white, 1);
+  }
+
+  // Credits
+  drawTextCentered('A Context Intelligence Adventure', 200, PAL.grey, 1);
+}
+
+// --- 1h: Main Game Loop ---
+function gameLoop(timestamp) {
+  game.dt = Math.min((timestamp - game.lastTime) / 1000, 0.05); // cap at 50ms
+  game.lastTime = timestamp;
+  game.frame++;
+
+  inputUpdate();
+
+  // Update current state
+  const handler = stateHandlers[game.state];
+  if (handler) {
+    handler.update();
+  }
+  updateTransition();
+
+  // Clear & render
+  ctx.clearRect(0, 0, GAME_W, GAME_H);
+  if (handler) {
+    handler.render();
+  }
+  renderTransition();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// --- 12: Audio System ---
+
+// 12a: Web Audio API setup & chiptune synth
+let audioCtx = null;
+let audioEnabled = false;
+let currentBGM = null;
+let bgmInterval = null;
+
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioEnabled = true;
+  } catch (e) {
+    audioEnabled = false;
+  }
+}
+
+// Enable audio on first user interaction
+document.addEventListener('keydown', function audioInit() {
+  initAudio();
+  document.removeEventListener('keydown', audioInit);
+}, { once: true });
+
+// Play a single note
+function playNote(freq, duration = 0.1, type = 'square', volume = 0.12) {
+  if (!audioCtx || !audioEnabled) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+// Note frequencies
+const NOTES = {
+  C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
+  C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+  C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00, B5: 987.77,
+  R: 0, // Rest
+};
+
+// 12b: BGM tracks - simple melody sequences
+const BGM_TRACKS = {
+  title: {
+    bpm: 120, notes: [
+      'E4','G4','C5','B4','A4','G4','E4','R',
+      'E4','G4','A4','B4','C5','R','B4','A4',
+      'G4','E4','D4','E4','G4','R','A4','G4',
+      'E4','D4','C4','D4','E4','R','R','R',
+    ]
+  },
+  overworld: {
+    bpm: 140, notes: [
+      'C4','E4','G4','E4','C4','D4','F4','D4',
+      'E4','G4','A4','G4','E4','D4','C4','R',
+      'A3','C4','E4','C4','A3','B3','D4','B3',
+      'C4','E4','G4','E4','C4','R','R','R',
+    ]
+  },
+  battle: {
+    bpm: 180, notes: [
+      'E4','E4','R','E4','R','C4','E4','G4',
+      'R','G3','R','R','C4','R','G3','R',
+      'E3','R','A3','B3','R','A3','R','R',
+      'G3','A4','G4','R','E4','G4','A4','F4',
+    ]
+  },
+  boss: {
+    bpm: 160, notes: [
+      'A3','R','A3','A3','R','A3','A3','C4',
+      'A3','R','G3','R','R','E3','R','R',
+      'A3','R','A3','A3','R','A3','C4','D4',
+      'C4','R','A3','R','R','R','R','R',
+    ]
+  },
+  victory: {
+    bpm: 140, notes: [
+      'C4','E4','G4','C5','R','C5','B4','A4',
+      'G4','A4','B4','C5','R','R','E5','D5',
+      'C5','B4','C5','D5','E5','R','C5','R',
+      'G4','R','C5','R','E5','R','R','R',
+    ]
+  },
+};
+
+function playBGM(trackName) {
+  stopBGM();
+  if (!audioEnabled) return;
+  const track = BGM_TRACKS[trackName];
+  if (!track) return;
+  currentBGM = trackName;
+  const beatDuration = 60 / track.bpm;
+  let noteIndex = 0;
+  const playNext = () => {
+    if (currentBGM !== trackName) return; // Track changed
+    const noteName = track.notes[noteIndex];
+    const freq = NOTES[noteName];
+    if (freq > 0) {
+      playNote(freq, beatDuration * 0.8, 'square', 0.08);
+      // Harmony - play bass note softly
+      if (noteIndex % 4 === 0) {
+        playNote(freq / 2, beatDuration * 1.5, 'triangle', 0.05);
+      }
+    }
+    noteIndex = (noteIndex + 1) % track.notes.length;
+  };
+  playNext();
+  bgmInterval = setInterval(playNext, beatDuration * 1000);
+}
+
+function stopBGM() {
+  currentBGM = null;
+  if (bgmInterval) {
+    clearInterval(bgmInterval);
+    bgmInterval = null;
+  }
+}
+
+// 12c: Sound effects
+function sfxConfirm() {
+  playNote(523.25, 0.08, 'square', 0.15);
+  setTimeout(() => playNote(659.25, 0.08, 'square', 0.15), 60);
+  setTimeout(() => playNote(783.99, 0.12, 'square', 0.15), 120);
+}
+
+function sfxHit() {
+  playNote(120, 0.15, 'sawtooth', 0.2);
+  setTimeout(() => playNote(80, 0.1, 'sawtooth', 0.15), 50);
+}
+
+function sfxLevelUp() {
+  const notes = [261, 329, 392, 523, 659, 783];
+  notes.forEach((f, i) => {
+    setTimeout(() => playNote(f, 0.15, 'square', 0.12), i * 80);
+  });
+}
+
+function sfxEvolve() {
+  for (let i = 0; i < 12; i++) {
+    setTimeout(() => playNote(300 + i * 50, 0.12, 'square', 0.1), i * 100);
+  }
+  setTimeout(() => {
+    playNote(880, 0.3, 'square', 0.15);
+    setTimeout(() => playNote(1046, 0.4, 'square', 0.15), 150);
+  }, 1200);
+}
+
+function sfxDiamond() {
+  const notes = [523, 659, 783, 1046, 783, 1046, 1318];
+  notes.forEach((f, i) => {
+    setTimeout(() => playNote(f, 0.2, 'triangle', 0.12), i * 120);
+  });
+}
+
+function sfxTextTick() {
+  playNote(800, 0.02, 'square', 0.04);
+}
+
+// Hook audio into game state changes
+const _originalChangeState = changeState;
+changeState = function(newState) {
+  _originalChangeState(newState);
+  // Auto-play BGM based on state
+  switch (newState) {
+    case STATE.TITLE: playBGM('title'); break;
+    case STATE.BATTLE:
+      if (battle.isBoss) playBGM('boss');
+      else playBGM('battle');
+      break;
+    case STATE.OVERWORLD: playBGM('overworld'); break;
+    case STATE.VICTORY: playBGM('victory'); break;
+    case STATE.EVOLUTION: stopBGM(); sfxEvolve(); break;
+  }
+};
+
+// Hook SFX into battle actions
+const _originalExecutePlayerTurn = executePlayerTurn;
+executePlayerTurn = function() {
+  _originalExecutePlayerTurn();
+  sfxHit();
+};
+const _originalExecuteEnemyTurn = executeEnemyTurn;
+executeEnemyTurn = function() {
+  _originalExecuteEnemyTurn();
+  sfxHit();
+};
+
+// Hook SFX into dialogue typewriter
+const _originalUpdateDialogue = updateDialogue;
+updateDialogue = function() {
+  const prevIdx = dialogue.charIndex;
+  _originalUpdateDialogue();
+  // Tick sound on new characters
+  if (dialogue.currentMsg && dialogue.charIndex > prevIdx && dialogue.charIndex % 2 === 0) {
+    sfxTextTick();
+  }
+};
+
+// --- Boot ---
+console.log('Diamond Quest: Engine initialized');
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
