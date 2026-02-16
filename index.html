@@ -569,6 +569,120 @@ function renderFog() {
   ctx.restore();
 }
 
+// PHASE 1E: Lighting System
+const lighting = {
+  enabled: false,
+  ambient: 1.0, // 0.0 = dark, 1.0 = full brightness
+  ambientColor: 'rgba(0, 0, 0, 0)',
+  pointLights: [], // { x, y, radius, color, intensity, pulse }
+  lightmapCanvas: null,
+  lightmapCtx: null,
+};
+
+// Initialize lighting canvas (offscreen buffer)
+function initLighting() {
+  if (!lighting.lightmapCanvas) {
+    lighting.lightmapCanvas = document.createElement('canvas');
+    lighting.lightmapCanvas.width = GAME_W;
+    lighting.lightmapCanvas.height = GAME_H;
+    lighting.lightmapCtx = lighting.lightmapCanvas.getContext('2d');
+  }
+}
+
+// Configure ambient lighting for a map (call when entering map)
+function setAmbientLight(brightness, color = 'rgba(0, 0, 0, 0.7)') {
+  lighting.enabled = brightness < 1.0;
+  lighting.ambient = brightness;
+  lighting.ambientColor = color;
+}
+
+// Add a point light (torch, glow effect, etc.)
+function addPointLight(x, y, radius, color = 'rgba(255, 220, 150, 0.8)', intensity = 1.0, pulse = false) {
+  lighting.pointLights.push({ x, y, radius, color, intensity, pulse, pulseTimer: 0 });
+}
+
+// Clear all point lights
+function clearPointLights() {
+  lighting.pointLights = [];
+}
+
+// Update lighting (pulse effects, etc.)
+function updateLighting(dt) {
+  for (const light of lighting.pointLights) {
+    if (light.pulse) {
+      light.pulseTimer += dt * 3;
+      light.intensity = 0.8 + Math.sin(light.pulseTimer) * 0.2;
+    }
+  }
+}
+
+// Render lightmap (darkens screen, then draws light sources)
+function renderLighting(camX, camY) {
+  if (!lighting.enabled) return;
+
+  initLighting();
+  const lCtx = lighting.lightmapCtx;
+
+  // Fill with ambient darkness
+  lCtx.clearRect(0, 0, GAME_W, GAME_H);
+  lCtx.fillStyle = lighting.ambientColor;
+  lCtx.globalAlpha = 1.0 - lighting.ambient;
+  lCtx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // Draw point lights (subtract from darkness using destination-out blend)
+  lCtx.globalCompositeOperation = 'destination-out';
+
+  for (const light of lighting.pointLights) {
+    const screenX = light.x - camX;
+    const screenY = light.y - camY;
+
+    // Only render if on screen
+    if (screenX < -light.radius || screenX > GAME_W + light.radius ||
+        screenY < -light.radius || screenY > GAME_H + light.radius) {
+      continue;
+    }
+
+    // Radial gradient for smooth light falloff
+    const gradient = lCtx.createRadialGradient(screenX, screenY, 0, screenX, screenY, light.radius);
+    gradient.addColorStop(0, `rgba(0, 0, 0, ${light.intensity})`);
+    gradient.addColorStop(0.6, `rgba(0, 0, 0, ${light.intensity * 0.5})`);
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    lCtx.fillStyle = gradient;
+    lCtx.beginPath();
+    lCtx.arc(screenX, screenY, light.radius, 0, Math.PI * 2);
+    lCtx.fill();
+  }
+
+  // Add colored glow around lights
+  lCtx.globalCompositeOperation = 'source-over';
+  lCtx.globalAlpha = 0.2;
+
+  for (const light of lighting.pointLights) {
+    const screenX = light.x - camX;
+    const screenY = light.y - camY;
+
+    if (screenX < -light.radius || screenX > GAME_W + light.radius ||
+        screenY < -light.radius || screenY > GAME_H + light.radius) {
+      continue;
+    }
+
+    const gradient = lCtx.createRadialGradient(screenX, screenY, 0, screenX, screenY, light.radius * 0.6);
+    gradient.addColorStop(0, light.color);
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    lCtx.fillStyle = gradient;
+    lCtx.beginPath();
+    lCtx.arc(screenX, screenY, light.radius * 0.6, 0, Math.PI * 2);
+    lCtx.fill();
+  }
+
+  // Composite lightmap onto main canvas
+  lCtx.globalAlpha = 1.0;
+  lCtx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(lighting.lightmapCanvas, 0, 0);
+}
+
 // Master sprite definitions - populated in 2b-2g
 const SPRITE_DEFS = {};
 
@@ -2999,6 +3113,9 @@ function renderOverworld() {
   // Phase 1D: Render fog overlay
   renderFog();
 
+  // Phase 1E: Render lighting system
+  renderLighting(overworld.camera.x, overworld.camera.y);
+
   renderHUD();
 
   // PHASE 0: Debug overlay (press D to toggle)
@@ -4996,6 +5113,9 @@ function gameLoop(timestamp) {
 
   // Update parallax backgrounds (Phase 1D)
   updateParallax(game.dt);
+
+  // Update lighting effects (Phase 1E)
+  updateLighting(game.dt);
 
   // Update current state
   const handler = stateHandlers[game.state];
