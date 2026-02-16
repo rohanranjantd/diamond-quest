@@ -2564,6 +2564,183 @@ function startPostSelectionDialogue(chosenId) {
 
 // --- 5: Overworld System ---
 
+// PHASE 3+5: Ambient World Particles (birds, fireflies, bubbles)
+const ambientParticles = {
+  particles: [],
+  maxParticles: 30,
+
+  reset() {
+    this.particles = [];
+  },
+
+  addBird(x, y) {
+    if (this.particles.length >= this.maxParticles) return;
+    this.particles.push({
+      type: 'bird',
+      x, y,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: Math.sin(Date.now() * 0.001) * 0.3,
+      life: 3 + Math.random() * 2,
+      size: 1
+    });
+  },
+
+  addFirefly(x, y) {
+    if (this.particles.length >= this.maxParticles) return;
+    this.particles.push({
+      type: 'firefly',
+      x, y,
+      vx: (Math.random() - 0.5) * 0.2,
+      vy: (Math.random() - 0.5) * 0.2,
+      life: 4 + Math.random() * 2,
+      glow: Math.random(),
+      glowSpeed: 0.05 + Math.random() * 0.05,
+      size: 1
+    });
+  },
+
+  addBubble(x, y) {
+    if (this.particles.length >= this.maxParticles) return;
+    this.particles.push({
+      type: 'bubble',
+      x, y,
+      vx: (Math.random() - 0.5) * 0.1,
+      vy: -0.3 - Math.random() * 0.2,
+      life: 2 + Math.random(),
+      size: 1 + Math.random()
+    });
+  },
+
+  update(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+
+      p.x += p.vx;
+      p.y += p.vy;
+
+      if (p.type === 'firefly') {
+        p.glow += p.glowSpeed;
+      }
+
+      // Remove if off-screen
+      const camX = overworld.camera.x;
+      const camY = overworld.camera.y;
+      if (p.x < camX - 20 || p.x > camX + GAME_W + 20 ||
+          p.y < camY - 20 || p.y > camY + GAME_H + 20) {
+        this.particles.splice(i, 1);
+      }
+    }
+  },
+
+  render() {
+    const camX = overworld.camera.x;
+    const camY = overworld.camera.y;
+
+    for (const p of this.particles) {
+      const sx = Math.floor(p.x - camX);
+      const sy = Math.floor(p.y - camY);
+
+      if (p.type === 'bird') {
+        ctx.fillStyle = 'rgba(80,60,40,' + Math.min(1, p.life) + ')';
+        ctx.fillRect(sx, sy, p.size, p.size);
+      } else if (p.type === 'firefly') {
+        const alpha = (Math.sin(p.glow) * 0.5 + 0.5) * Math.min(1, p.life);
+        ctx.fillStyle = `rgba(255,255,150,${alpha})`;
+        ctx.fillRect(sx, sy, p.size, p.size);
+        // Glow halo
+        ctx.fillStyle = `rgba(255,255,150,${alpha * 0.3})`;
+        ctx.fillRect(sx - 1, sy - 1, p.size + 2, p.size + 2);
+      } else if (p.type === 'bubble') {
+        ctx.fillStyle = 'rgba(180,220,255,' + Math.min(0.6, p.life * 0.3) + ')';
+        ctx.fillRect(sx, sy, p.size, p.size);
+      }
+    }
+  }
+};
+
+// PHASE 3+5: Hidden Collectible Sparkles
+const collectibleSparkles = {
+  sparkles: [],
+  spawnChance: 0.02, // 2% per second in tall grass
+
+  trySpawn() {
+    if (this.sparkles.length > 0) return; // Only 1 at a time
+
+    const map = MAPS[overworld.currentMap];
+    if (!map) return;
+
+    // Only spawn in Forest for now
+    if (overworld.currentMap !== 'forest') return;
+
+    if (Math.random() < this.spawnChance * game.dt) {
+      // Random grass tile
+      const col = Math.floor(Math.random() * map.width);
+      const row = Math.floor(Math.random() * map.height);
+      const tile = getTile(map, col, row);
+      if (tile === '.') { // Grass
+        this.sparkles.push({
+          col, row,
+          life: 5, // 5 seconds before disappearing
+          pulse: 0
+        });
+      }
+    }
+  },
+
+  update(dt) {
+    for (let i = this.sparkles.length - 1; i >= 0; i--) {
+      const s = this.sparkles[i];
+      s.life -= dt;
+      s.pulse += dt * 4;
+      if (s.life <= 0) {
+        this.sparkles.splice(i, 1);
+      }
+    }
+  },
+
+  checkCollect(col, row) {
+    for (let i = this.sparkles.length - 1; i >= 0; i--) {
+      const s = this.sparkles[i];
+      if (s.col === col && s.row === row) {
+        this.sparkles.splice(i, 1);
+        game.player.collectibles.diamondDust = (game.player.collectibles.diamondDust || 0) + 1;
+        SFX.play('diamond');
+        showDialogue(['You found a Diamond Dust!\n\nA rare crystallized signal\nfragment.'], STATE.OVERWORLD);
+        return true;
+      }
+    }
+    return false;
+  },
+
+  render() {
+    const camX = overworld.camera.x;
+    const camY = overworld.camera.y;
+
+    for (const s of this.sparkles) {
+      const sx = s.col * TILE - camX;
+      const sy = s.row * TILE - camY;
+
+      const alpha = Math.sin(s.pulse) * 0.4 + 0.6;
+      ctx.fillStyle = `rgba(255,255,100,${alpha})`;
+      ctx.fillRect(sx + 6, sy + 6, 4, 4);
+
+      // Sparkle effect
+      if (Math.floor(s.pulse * 2) % 2 === 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.fillRect(sx + 7, sy + 5, 2, 1);
+        ctx.fillRect(sx + 7, sy + 11, 2, 1);
+        ctx.fillRect(sx + 5, sy + 7, 1, 2);
+        ctx.fillRect(sx + 11, sy + 7, 1, 2);
+      }
+    }
+  }
+};
+
 // 5a: Map data structure & camera
 const MAPS = {}; // Will hold map definitions
 const overworld = {
@@ -3666,6 +3843,10 @@ function renderOverworld() {
   renderParallax(overworld.camera.x, overworld.camera.y);
 
   renderMap();
+
+  // PHASE 3+5: Render collectible sparkles (on ground, before player)
+  collectibleSparkles.render();
+
   // Ambient floating particles
   for (let i = 0; i < 8; i++) {
     const px = ((i * 97 + game.frame * 0.2) % (GAME_W + 20)) - 10;
@@ -3675,6 +3856,9 @@ function renderOverworld() {
   }
   renderNPCs();
   renderPlayer();
+
+  // PHASE 3+5: Render ambient particles (fireflies, birds, bubbles)
+  ambientParticles.render();
 
   // PHASE 0: Render overlay layer (tiles drawn above player like tree canopy, roof edges)
   const map = MAPS[overworld.currentMap];
@@ -3718,6 +3902,31 @@ function updateOverworld() {
   // PHASE 0: Check for interaction key press (when not moving)
   if (!overworld.moving && interactPressed() && !transition.active) {
     runInteraction();
+  }
+
+  // PHASE 3+5: Update ambient particles
+  ambientParticles.update(game.dt);
+
+  // PHASE 3+5: Spawn ambient particles based on map
+  if (Math.random() < 0.1 * game.dt) { // 10% chance per second
+    const map = MAPS[overworld.currentMap];
+    if (map && overworld.currentMap === 'forest') {
+      // Spawn fireflies in forest
+      const x = overworld.camera.x + Math.random() * GAME_W;
+      const y = overworld.camera.y + Math.random() * GAME_H;
+      ambientParticles.addFirefly(x, y);
+    }
+  }
+
+  // PHASE 3+5: Update and spawn collectible sparkles
+  collectibleSparkles.update(game.dt);
+  collectibleSparkles.trySpawn();
+
+  // PHASE 3+5: Check if player stepped on sparkle
+  if (!overworld.moving) {
+    const col = Math.floor(game.player.x / TILE);
+    const row = Math.floor(game.player.y / TILE);
+    collectibleSparkles.checkCollect(col, row);
   }
 }
 
