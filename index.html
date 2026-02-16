@@ -2911,26 +2911,83 @@ function exitInterior() {
 
 // Object layer character -> interaction mapping
 const OBJECT_INTERACTIONS = {
-  'S': (col, row) => { // Sign
-    startDialogue([{ text: 'Sign: Use arrow keys to move, Z to interact!' }], {
+  'S': (col, row) => { // Sign - PHASE 2B: Contextual messages
+    const map = MAPS[overworld.currentMap];
+    let signMessage = 'Sign: Use arrow keys to move, Z to interact!';
+
+    // Map-specific sign messages
+    if (map.name === "Rafa's Lab") {
+      signMessage = 'Prof. Rafa\'s Lab - Context Intelligence Research Center';
+    } else if (map.name === 'Fragment Forest') {
+      const signMessages = [
+        'Fragment Forest - Wild signals roam here. Stay alert!',
+        'Tip: Build your Signal Creature\'s XP by battling!',
+        'Warning: CSV Goblins and Legacy APIs ahead!',
+        'Identity Lasso Tutorial: Link scattered signals after battles.'
+      ];
+      // Use position to vary messages
+      const msgIndex = (col + row) % signMessages.length;
+      signMessage = signMessages[msgIndex];
+    } else if (map.name === 'CDP Nexus') {
+      const signMessages = [
+        'CDP Nexus - The Diamond Record unifies all signals.',
+        'Context is power. Fragmentation is chaos.',
+        'Beware: The Silos Syndicate operates here.',
+        'Tip: Visit the Context Center to restore your creature\'s HP!'
+      ];
+      const msgIndex = (col + row) % signMessages.length;
+      signMessage = signMessages[msgIndex];
+    } else if (map.name === 'Agent Foundry') {
+      const signMessages = [
+        'Agent Foundry - Where Agents are born from Context.',
+        'Choose wisely: Audience, Creative, or Decision Agent.',
+        'Agents turn data into action.',
+        'Tip: Each agent has unique strengths!'
+      ];
+      const msgIndex = (col + row) % signMessages.length;
+      signMessage = signMessages[msgIndex];
+    }
+
+    startDialogue([{ text: signMessage }], {
       bgRender: renderOverworld,
       returnState: STATE.OVERWORLD
     });
   },
-  'O': (col, row) => { // Pot/Plant
-    startDialogue([{ text: 'A decorative plant. It looks healthy!' }], {
+  'O': (col, row) => { // Pot/Plant - PHASE 2C: Enhanced descriptions
+    const descriptions = [
+      'A decorative plant. It looks healthy!',
+      'A potted plant. Its leaves shimmer with digital energy.',
+      'A carefully tended plant. Someone takes good care of this.',
+      'A small plant in a terra cotta pot. It smells faintly of jasmine.'
+    ];
+    const desc = descriptions[(col + row) % descriptions.length];
+    startDialogue([{ text: desc }], {
       bgRender: renderOverworld,
       returnState: STATE.OVERWORLD
     });
   },
-  'C': (col, row) => { // Crate
-    startDialogue([{ text: 'A wooden crate. It\'s tightly sealed.' }], {
+  'C': (col, row) => { // Crate - PHASE 2C: Enhanced descriptions
+    const descriptions = [
+      'A wooden crate. It\'s tightly sealed.',
+      'A sturdy crate labeled "Signal Fragments - Handle with Care".',
+      'An old crate. You hear faint humming from inside.',
+      'A shipping crate from the Treasure Foundry. It\'s locked.'
+    ];
+    const desc = descriptions[(col + row) % descriptions.length];
+    startDialogue([{ text: desc }], {
       bgRender: renderOverworld,
       returnState: STATE.OVERWORLD
     });
   },
-  'M': (col, row) => { // Terminal
-    startDialogue([{ text: 'Terminal: System operational. Context Intelligence online.' }], {
+  'M': (col, row) => { // Terminal - PHASE 2C: Enhanced descriptions
+    const descriptions = [
+      'Terminal: System operational. Context Intelligence online.',
+      'Terminal: Diamond Core status: STABLE. Unity index: 94%.',
+      'Terminal: Warning - Silos Syndicate activity detected in sector 7.',
+      'Terminal: Agent deployment successful. All systems nominal.'
+    ];
+    const desc = descriptions[(col + row) % descriptions.length];
+    startDialogue([{ text: desc }], {
       bgRender: renderOverworld,
       returnState: STATE.OVERWORLD
     });
