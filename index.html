@@ -1915,6 +1915,107 @@ defSprite('tile_terminal', [
   'GGGGGGWWWGGGGGGG',
 ], {G: '#696969', D: '#A9A9A9', C: '#2F4F4F', B: '#000000', N: PAL.cyan, W: '#808080'}, 1);
 
+// PHASE 2A: Interior Decoration Tiles
+// Rug tile (floor decoration)
+defSprite('tile_rug', [
+  '................',
+  '.RRRRRRRRRRRRRR.',
+  '.RrrrrrrrrrrrrR.',
+  '.RrYYYYYYYYYYrR.',
+  '.RrYyyyyyyyyyYrR.',
+  '.RrYyBBBBBBByYrR.',
+  '.RrYyBbbbbBByYrR.',
+  '.RrYyBbbbbBByYrR.',
+  '.RrYyBbbbbBByYrR.',
+  '.RrYyBBBBBBByYrR.',
+  '.RrYyyyyyyyyyYrR.',
+  '.RrYYYYYYYYYYYrR.',
+  '.RrrrrrrrrrrrrR.',
+  '.RRRRRRRRRRRRRR.',
+  '................',
+  '................',
+], {R: '#8B0000', r: '#A52A2A', Y: '#FFD700', y: '#FFA500', B: '#4B0000', b: '#2B0000'}, 1);
+
+// Table tile (furniture)
+defSprite('tile_table', [
+  '................',
+  '................',
+  'WWWWWWWWWWWWWWWW',
+  'WwwwwwwwwwwwwwwW',
+  'WwDDDDDDDDDDDDwW',
+  'WwDdddddddddDDwW',
+  'WwDdddddddddDDwW',
+  'WwDdddddddddDDwW',
+  'WwDDDDDDDDDDDDwW',
+  'WwwwwwwwwwwwwwwW',
+  'WWWWWWWWWWWWWWWW',
+  '...WW....WW.....',
+  '...WW....WW.....',
+  '...WW....WW.....',
+  '..WWWW..WWWW....',
+  '................',
+], {W: '#8B4513', w: '#A0522D', D: '#654321', d: '#4A3520'}, 1);
+
+// Bookshelf tile
+defSprite('tile_bookshelf', [
+  'BBBBBBBBBBBBBBBB',
+  'BwwwwwwwwwwwwwwB',
+  'BwRGBYRGBYRGBYwB',
+  'BwRGBYRGBYRGBYwB',
+  'BwRGBYRGBYRGBYwB',
+  'BwwwwwwwwwwwwwwB',
+  'BwRYBGRYBGRYBGwB',
+  'BwRYBGRYBGRYBGwB',
+  'BwRYBGRYBGRYBGwB',
+  'BwwwwwwwwwwwwwwB',
+  'BwGBYRGBYRGBYRwB',
+  'BwGBYRGBYRGBYRwB',
+  'BwGBYRGBYRGBYRwB',
+  'BwwwwwwwwwwwwwwB',
+  'BDDDDDDDDDDDDDdB',
+  'BBBBBBBBBBBBBBBB',
+], {B: '#8B4513', w: '#A0522D', D: '#654321', d: '#4A3520', R: '#8B0000', G: '#006400', Y: '#FFD700'}, 1);
+
+// Bed tile
+defSprite('tile_bed', [
+  '................',
+  '.WWWWWWWWWWWWWW.',
+  '.WRRRRRRRRRRRRRW',
+  '.WRRRRRRRRRRRRRW',
+  '.WRRRRRRRRRRRRRW',
+  '.WRRRRRRRRRRRRRW',
+  '.WPPPPPPPPPPPPPW',
+  '.WPPPPPPPPPPPPPW',
+  '.WPPPPPPPPPPPPPW',
+  '.WPPPPPPPPPPPPPW',
+  '.WPPPPPPPPPPPPPW',
+  '.WPPPPPPPPPPPPPW',
+  '.WWWWWWWWWWWWWW.',
+  '..WW..........WW',
+  '..WW..........WW',
+  '................',
+], {W: '#8B4513', R: '#DC143C', P: '#FFB6C1'}, 1);
+
+// Counter tile (shop counter)
+defSprite('tile_counter', [
+  'WWWWWWWWWWWWWWWW',
+  'WwwwwwwwwwwwwwwW',
+  'WwBBBBBBBBBBBBwW',
+  'WwBGGGGGGGGGGBwW',
+  'WwBGggggggggGBwW',
+  'WwBGggggggggGBwW',
+  'WwBGggggggggGBwW',
+  'WwBGggggggggGBwW',
+  'WwBGGGGGGGGGGBwW',
+  'WwBBBBBBBBBBBBwW',
+  'WwwwwwwwwwwwwwwW',
+  'WWWWWWWWWWWWWWWW',
+  '..WW........WW..',
+  '..WW........WW..',
+  '..WW........WW..',
+  '................',
+], {W: '#8B4513', w: '#A0522D', B: '#654321', G: '#90EE90', g: '#7CCD7C'}, 1);
+
 // --- 2g: UI & Item Sprites ---
 // Diamond fragment
 defSprite('diamond_fragment', [
@@ -2503,6 +2604,13 @@ const TILE_TYPES = {
   'C': { walkable: false, sprite: 'tile_crate' },
   'M': { walkable: false, sprite: 'tile_terminal' },
 
+  // PHASE 2A: Interior decoration tiles
+  'U': { walkable: true,  sprite: 'tile_rug' },      // Rug (walkable floor decoration)
+  'A': { walkable: false, sprite: 'tile_table' },    // Table
+  'K': { walkable: false, sprite: 'tile_bookshelf' },// Bookshelf
+  'Q': { walkable: false, sprite: 'tile_bed' },      // Bed
+  'X': { walkable: false, sprite: 'tile_counter' },  // Counter
+
   // Doors & special
   'D': { walkable: true,  sprite: 'tile_door' },
 
@@ -2746,6 +2854,58 @@ function runInteraction() {
       OBJECT_INTERACTIONS[objChar](facing.col, facing.row);
       return;
     }
+  }
+
+  // PHASE 2A: Check for door tiles
+  if (map.layers && map.layers.object) {
+    const objChar = map.layers.object[facing.row]?.[facing.col];
+    if (objChar === 'D') {
+      // Find door trigger at this position
+      const doorTrigger = findTriggerAt(map, facing.col, facing.row, 'door');
+      if (doorTrigger && doorTrigger.action) {
+        doorTrigger.action();
+      }
+      return;
+    }
+  }
+}
+
+// PHASE 2A: Interior/Exterior Transition Tracking
+const interiorState = {
+  returnMap: null,
+  returnX: null,
+  returnY: null
+};
+
+// Helper: Enter an interior map
+function enterInterior(interiorMapName, entryCol, entryRow) {
+  // Store current position for return
+  interiorState.returnMap = overworld.currentMap;
+  interiorState.returnX = game.player.x;
+  interiorState.returnY = game.player.y;
+
+  // Transition to interior
+  changeStateWithFade(STATE.OVERWORLD, () => {
+    overworld.currentMap = interiorMapName;
+    game.player.x = entryCol * TILE;
+    game.player.y = entryRow * TILE;
+    overworld.encounterSteps = 0;
+  });
+}
+
+// Helper: Exit an interior (return to previous exterior location)
+function exitInterior() {
+  if (interiorState.returnMap) {
+    changeStateWithFade(STATE.OVERWORLD, () => {
+      overworld.currentMap = interiorState.returnMap;
+      game.player.x = interiorState.returnX;
+      game.player.y = interiorState.returnY;
+      overworld.encounterSteps = 0;
+      // Clear return state
+      interiorState.returnMap = null;
+      interiorState.returnX = null;
+      interiorState.returnY = null;
+    });
   }
 }
 
@@ -3069,6 +3229,183 @@ MAPS.foundry = {
   triggers: [
     { col: 7, row: 0, type: 'transition', target: 'nexus', targetX: 8, targetY: 13 },
     { col: 8, row: 0, type: 'transition', target: 'nexus', targetX: 9, targetY: 13 },
+  ],
+  encounters: [],
+};
+
+// PHASE 2A: Interior Maps
+MAPS.house1_interior = {
+  name: "House",
+  width: 10,
+  height: 8,
+  layers: {
+    ground: [
+      'LLLLLLLLLL',
+      'LLLLLLLLLL',
+      'LLLLLLLLLL',
+      'LLLLLLLLLL',
+      'LLLLLLLLLL',
+      'LLLLLLLLLL',
+      'LLLLLLLLLL',
+      'LLLLLLLLLL',
+    ],
+    object: [
+      '##########',
+      '#K   O  A#',
+      '#K      A#',
+      '#        #',
+      '#   UUU  #',
+      '#   UUU  #',
+      '#Q  UUU D#',
+      '##########',
+    ],
+    overlay: [
+      '          ',
+      '          ',
+      '          ',
+      '          ',
+      '          ',
+      '          ',
+      '          ',
+      '          ',
+    ]
+  },
+  triggers: [
+    {
+      col: 9, row: 6, type: 'door',
+      message: 'Exit to outside?',
+      action: () => {
+        exitInterior();
+      }
+    }
+  ],
+  encounters: [],
+};
+
+MAPS.context_center_interior = {
+  name: "Context Center",
+  width: 14,
+  height: 10,
+  layers: {
+    ground: [
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+      'LLLLLLLLLLLLLL',
+    ],
+    object: [
+      '##############',
+      '#O  XXXXX   O#',
+      '#   XXXXX    #',
+      '#            #',
+      '#  UUU  UUU  #',
+      '#  UUU  UUU  #',
+      '#  UUU  UUU  #',
+      '#    A  A    #',
+      '#         D  #',
+      '##############',
+    ],
+    overlay: [
+      '              ',
+      '              ',
+      '              ',
+      '              ',
+      '              ',
+      '              ',
+      '              ',
+      '              ',
+      '              ',
+      '              ',
+    ]
+  },
+  triggers: [
+    {
+      col: 10, row: 8, type: 'door',
+      message: 'Exit to outside?',
+      action: () => {
+        exitInterior();
+      }
+    },
+    {
+      col: 6, row: 2, type: 'interact',
+      message: 'Would you like to restore your Signal Creature to full health?',
+      action: () => {
+        if (game.player.creature) {
+          game.player.creature.hp = game.player.creature.maxHP;
+          startDialogue([
+            { text: 'Your Signal Creature has been fully restored!', speaker: 'Context Attendant' }
+          ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+        }
+      }
+    }
+  ],
+  encounters: [],
+};
+
+MAPS.signal_shop_interior = {
+  name: "Signal Shop",
+  width: 12,
+  height: 9,
+  layers: {
+    ground: [
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+      'LLLLLLLLLLLL',
+    ],
+    object: [
+      '############',
+      '#O  XXX   O#',
+      '#   XXX    #',
+      '#          #',
+      '#  K    K  #',
+      '#  K    K  #',
+      '#  A    A  #',
+      '#       D  #',
+      '############',
+    ],
+    overlay: [
+      '            ',
+      '            ',
+      '            ',
+      '            ',
+      '            ',
+      '            ',
+      '            ',
+      '            ',
+      '            ',
+    ]
+  },
+  triggers: [
+    {
+      col: 8, row: 7, type: 'door',
+      message: 'Exit to outside?',
+      action: () => {
+        exitInterior();
+      }
+    },
+    {
+      col: 5, row: 2, type: 'interact',
+      message: 'Welcome to the Signal Shop! We sell Diamond Dust and context lore.',
+      action: () => {
+        startDialogue([
+          { text: 'Welcome! Looking for Signal insights today?', speaker: 'Shopkeeper' },
+          { text: 'We have Diamond Dust for 100 credits, or Lore Pages for 50!', speaker: 'Shopkeeper' },
+          { text: '...Oh, it seems credits are not implemented yet. Come back later!', speaker: 'Shopkeeper' }
+        ], { bgRender: renderOverworld, returnState: STATE.OVERWORLD });
+      }
+    }
   ],
   encounters: [],
 };
