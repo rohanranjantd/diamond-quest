@@ -8,6 +8,23 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; background: #0a0a1a; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+
+/* Premium Pixel Font (V2 Polish) */
+@font-face {
+  font-family: 'PixelFont';
+  src: local('Courier New'), local('Courier'), monospace;
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* UI Theme Variables */
+:root {
+  --ui-border: #f0f0ff;
+  --ui-bg: rgba(26, 26, 62, 0.95);
+  --ui-accent: #7df3ff;
+  --ui-padding: 8px;
+  --ui-border-width: 2px;
+}
 </style>
 </head>
 <body>
@@ -2318,6 +2335,89 @@ const FXManager = {
     }
 
     ctx.globalAlpha = 1;
+  }
+};
+
+// --- 6b: Premium UI Panel Component (V2 Polish) ---
+// Provides reusable UI panel rendering with consistent styling
+
+const UIPanel = {
+  // Render a standard panel with border and background
+  renderPanel(x, y, w, h, alpha = 0.95) {
+    // Background
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(26, 26, 62, 0.95)';
+    ctx.fillRect(x, y, w, h);
+
+    // Border
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = PAL.white;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+    // Accent corners (diamond pattern)
+    const cornerSize = 4;
+    ctx.fillStyle = PAL.cyan;
+    // Top-left
+    ctx.fillRect(x + 2, y + 2, cornerSize, 1);
+    ctx.fillRect(x + 2, y + 2, 1, cornerSize);
+    // Top-right
+    ctx.fillRect(x + w - cornerSize - 2, y + 2, cornerSize, 1);
+    ctx.fillRect(x + w - 3, y + 2, 1, cornerSize);
+    // Bottom-left
+    ctx.fillRect(x + 2, y + h - 3, cornerSize, 1);
+    ctx.fillRect(x + 2, y + h - cornerSize - 2, 1, cornerSize);
+    // Bottom-right
+    ctx.fillRect(x + w - cornerSize - 2, y + h - 3, cornerSize, 1);
+    ctx.fillRect(x + w - 3, y + h - cornerSize - 2, 1, cornerSize);
+  },
+
+  // Render menu options with icon selector
+  renderMenuOptions(x, y, options, selectedIdx, iconChar = '►') {
+    const lineHeight = 18;
+    for (let i = 0; i < options.length; i++) {
+      const isSelected = i === selectedIdx;
+      const color = isSelected ? PAL.gold : PAL.white;
+      const prefix = isSelected ? iconChar : ' ';
+
+      drawText(prefix + ' ' + options[i], x + 10, y + i * lineHeight, color);
+
+      // Highlight background for selected option
+      if (isSelected) {
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = PAL.gold;
+        ctx.fillRect(x + 5, y + i * lineHeight - 2, 120, 16);
+        ctx.globalAlpha = 1;
+      }
+    }
+  },
+
+  // Render HP bar with styling
+  renderHPBar(x, y, w, h, current, max, label = 'HP') {
+    // Background
+    drawRect(x, y, w, h, 'rgba(10, 10, 26, 0.85)');
+    drawBorder(x, y, w, h, PAL.red);
+
+    // HP label
+    drawText(label, x + 4, y - 10, PAL.white);
+
+    // HP percentage calculation
+    const pct = Math.max(0, Math.min(1, current / max));
+    const barColor = pct > 0.5 ? PAL.green : pct > 0.25 ? PAL.yellow : PAL.red;
+
+    // HP bar fill
+    drawRect(x + 2, y + 2, (w - 4) * pct, h - 4, barColor);
+
+    // HP text
+    drawText(Math.ceil(current) + '/' + max, x + 4, y + 3, PAL.grey);
+  },
+
+  // Render stat display box
+  renderStatBox(x, y, label, value, color = PAL.white) {
+    drawRect(x, y, 45, 20, 'rgba(26, 26, 62, 0.85)');
+    drawBorder(x, y, 45, 20, color);
+    drawText(label, x + 3, y + 2, PAL.grey);
+    drawText(value.toString(), x + 3, y + 10, color);
   }
 };
 
