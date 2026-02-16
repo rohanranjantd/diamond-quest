@@ -85,6 +85,7 @@ const game = {
     badges: [],
     diamondFragments: 0,
     hasDiamondRecord: false,
+    collectibles: {}, // PHASE 0: Track collectible items (diamondDust, lorePages, etc.)
   },
   stageFlags: {
     stage1Complete: false,
@@ -92,6 +93,7 @@ const game = {
     stage3Complete: false,
     bossDefeated: false,
   },
+  debug: false, // PHASE 0: Debug mode toggle (press D key to enable/disable)
 };
 
 // --- 1c: Input Handler ---
@@ -104,6 +106,12 @@ const input = {
 window.addEventListener('keydown', (e) => {
   e.preventDefault();
   input.keys[e.code] = true;
+
+  // PHASE 0: Debug mode toggle (D key)
+  if (e.code === 'KeyD' && !input._prev['KeyD']) {
+    game.debug = !game.debug;
+    console.log('Debug mode:', game.debug ? 'ON' : 'OFF');
+  }
 });
 window.addEventListener('keyup', (e) => {
   e.preventDefault();
@@ -969,6 +977,167 @@ defSprite('tile_foundry', [
   'cDDDDDDDDDDDDDDD',
 ], C_TILE, 1);
 
+// PHASE 0: B2W2-Style Object Tiles
+// House tile (building wall)
+defSprite('tile_house', [
+  'BBBBBBBBBBBBBBBB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BDDDDDDWWWDDDDDB',
+  'BBBBBBBBBBBBBBBB',
+], {B: '#8B4513', D: '#A0522D', W: '#87CEEB'}, 1);
+
+// Roof tile
+defSprite('tile_roof', [
+  'RRRRRRRRRRRRRRRR',
+  'RRRRRRRRRRRRRRRR',
+  'RRRRRRRRRRRRRRRR',
+  'rRRRRRRRRRRRRRRR',
+  'RRRRRRRRRRRRRRrR',
+  'RRRRRRRRRRRRRRRR',
+  'rRRRRRRRRRRRRRRR',
+  'RRRRRRRRRRRRRRrR',
+  'RRRRRRRRRRRRRRRR',
+  'rRRRRRRRRRRRRRRR',
+  'RRRRRRRRRRRRRRrR',
+  'RRRRRRRRRRRRRRRR',
+  'rRRRRRRRRRRRRRRR',
+  'RRRRRRRRRRRRRRrR',
+  'RRRRRRRRRRRRRRRR',
+  'RRRRRRRRRRRRRRRR',
+], {R: '#8B0000', r: '#6B0000'}, 1);
+
+// Fence tile
+defSprite('tile_fence', [
+  'WWWW..WW..WWWW..',
+  'WWWW..WW..WWWW..',
+  'WWWW..WW..WWWW..',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWW..WW..WWWW..',
+  'WWWW..WW..WWWW..',
+  'WWWW..WW..WWWW..',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWW..WW..WWWW..',
+  'WWWW..WW..WWWW..',
+  'WWWW..WW..WWWW..',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  '................',
+], {W: '#D2691E', '.': 'transparent'}, 1);
+
+// Bush tile (decorative)
+defSprite('tile_bush', [
+  '................',
+  '...GGG....GGG...',
+  '..GGGGG..GGGGG..',
+  '.GGGGGGGGGGGGGG.',
+  '.GGGddGGGGddGGG.',
+  'GGGGddGGGGddGGGG',
+  'GGGGGGGGGGGdGGGG',
+  'GGGdGGGGGGGGGGGG',
+  'GGGddGGGGGGGdGGG',
+  '.GGGGGGGGGGddGG.',
+  '..GGGGGGGGGGGG..',
+  '...GGGGGGGGGG...',
+  '....GGGGGGGG....',
+  '.....GGGGGG.....',
+  '......GGGG......',
+  '................',
+], {G: '#228B22', d: '#006400'}, 1);
+
+// Sign tile
+defSprite('tile_sign', [
+  '................',
+  '.....WWWWWW.....',
+  '....WWBBBBBWW...',
+  '...WWBBBBBBBWW..',
+  '..WWBBBBBBBBBWW.',
+  '..WBBBBBBBBBBBW.',
+  '..WBBBBBBBBBBBW.',
+  '..WBBBBBBBBBBBW.',
+  '..WBBBBBBBBBBBW.',
+  '...WWBBBBBBBWW..',
+  '....WWBBBBBWW...',
+  '.....WWWWWW.....',
+  '.......WW.......',
+  '.......WW.......',
+  '.......WW.......',
+  '......WWWW......',
+], {W: '#8B4513', B: '#DEB887'}, 1);
+
+// Pot tile (decorative plant)
+defSprite('tile_pot', [
+  '................',
+  '................',
+  '......GGG.......',
+  '.....GGGGG......',
+  '....GGGGGGG.....',
+  '....GGGgGGG.....',
+  '.....GGGGG......',
+  '......GGG.......',
+  '................',
+  '.....RRRRR......',
+  '....RRRRRRR.....',
+  '....RRRRRRR.....',
+  '.....RRRRR......',
+  '......RRR.......',
+  '................',
+  '................',
+], {G: '#32CD32', g: '#228B22', R: '#8B4513'}, 1);
+
+// Crate tile
+defSprite('tile_crate', [
+  'WWWWWWWWWWWWWWWW',
+  'WwwwwwwDwwwwwwwW',
+  'WwwwwwDDDwwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwDDDDDwwwwwW',
+  'WwwwwwDDDwwwwwwW',
+  'WwwwwwwDwwwwwwwW',
+  'WwwwwwwwwwwwwwwW',
+  'WWWWWWWWWWWWWWWW',
+], {W: '#8B4513', w: '#A0522D', D: '#654321'}, 1);
+
+// Terminal tile (tech console)
+defSprite('tile_terminal', [
+  'GGGGGGGGGGGGGGGG',
+  'GDDDDDDDDDDDDDDDG',
+  'GDCCCCCCCCCCCCDG',
+  'GDCBBBBBBBBBBCDG',
+  'GDCBBBBBBBBBBCDG',
+  'GDCBBNNNNBBBBCDG',
+  'GDCBBNNNNBBBBCDG',
+  'GDCBBBBBBBBBBCDG',
+  'GDCBBBBBBBBBBCDG',
+  'GDCCCCCCCCCCCCDG',
+  'GDDDDDDDDDDDDDDG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGWWWGGGGGG',
+  'GGGGGGWWWGGGGGGG',
+  'GGGGGGWWWGGGGGGG',
+  'GGGGGGWWWGGGGGGG',
+], {G: '#696969', D: '#A9A9A9', C: '#2F4F4F', B: '#000000', N: PAL.cyan, W: '#808080'}, 1);
+
 // --- 2g: UI & Item Sprites ---
 // Diamond fragment
 defSprite('diamond_fragment', [
@@ -1533,16 +1702,35 @@ const overworld = {
 };
 
 // Tile types: 0=walkable, 1=wall, 2=water, 3=trigger
+// PHASE 0: Extended for layered maps (ground, object, overlay)
 const TILE_TYPES = {
+  // Ground tiles (walkable terrain)
   '.': { walkable: true,  sprite: 'tile_grass' },
-  '#': { walkable: false, sprite: 'tile_wall' },
-  'T': { walkable: false, sprite: 'tile_tree' },
-  'W': { walkable: false, sprite: 'tile_water' },
   'P': { walkable: true,  sprite: 'tile_path' },
   'L': { walkable: true,  sprite: 'tile_lab' },
-  'D': { walkable: true,  sprite: 'tile_door' },
   'N': { walkable: true,  sprite: 'tile_nexus' },
   'F': { walkable: true,  sprite: 'tile_foundry' },
+  'W': { walkable: false, sprite: 'tile_water' },
+
+  // Object tiles (blocking props)
+  '#': { walkable: false, sprite: 'tile_wall' },
+  'T': { walkable: false, sprite: 'tile_tree' },
+  'H': { walkable: false, sprite: 'tile_house' },
+  'R': { walkable: false, sprite: 'tile_roof' },
+  'E': { walkable: false, sprite: 'tile_fence' },
+  'B': { walkable: false, sprite: 'tile_bush' },
+
+  // Interactable objects (non-blocking but inspectable)
+  'S': { walkable: false, sprite: 'tile_sign' },
+  'O': { walkable: false, sprite: 'tile_pot' },
+  'C': { walkable: false, sprite: 'tile_crate' },
+  'M': { walkable: false, sprite: 'tile_terminal' },
+
+  // Doors & special
+  'D': { walkable: true,  sprite: 'tile_door' },
+
+  // Empty (for object/overlay layers)
+  ' ': { walkable: true,  sprite: null }, // Transparent/empty
 };
 
 function renderMap() {
@@ -1550,6 +1738,14 @@ function renderMap() {
   if (!map) return;
   const camX = overworld.camera.x;
   const camY = overworld.camera.y;
+
+  // PHASE 0: Use layered rendering if map has layers
+  if (map.layers) {
+    renderMapLayered(map, camX, camY);
+    return;
+  }
+
+  // Original single-layer rendering for backward compatibility
   const startCol = Math.max(0, Math.floor(camX / TILE));
   const startRow = Math.max(0, Math.floor(camY / TILE));
   const endCol = Math.min(map.width, startCol + Math.ceil(GAME_W / TILE) + 1);
@@ -1679,6 +1875,206 @@ function checkRandomEncounter() {
       startBattle(enc.id, enc.level || 2);
     }
   }
+}
+
+// ============================================================
+// PHASE 0: B2W2-STYLE INTERACTION & LAYERED MAP SYSTEM
+// ============================================================
+// Enhanced interaction framework for signs, objects, doors, NPCs
+
+// Helper: Get the tile coordinates the player is facing
+function getFacingTile(player) {
+  const col = Math.floor(player.x / TILE);
+  const row = Math.floor(player.y / TILE);
+  const directions = [[0,1], [0,-1], [-1,0], [1,0]]; // down, up, left, right
+  const [dx, dy] = directions[player.dir];
+  return { col: col + dx, row: row + dy };
+}
+
+// Helper: Find trigger at specific coordinates
+function findTriggerAt(map, col, row, type = null) {
+  if (!map || !map.triggers) return null;
+  for (const t of map.triggers) {
+    if (t.col === col && t.row === row) {
+      if (type === null || t.type === type) return t;
+    }
+  }
+  return null;
+}
+
+// Interaction types registry
+const INTERACTION_TYPES = {
+  sign: (data) => {
+    startDialogue([{ text: data.message }], {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD
+    });
+  },
+  object: (data) => {
+    startDialogue([{ text: data.description }], {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD
+    });
+  },
+  door: (data) => {
+    if (transition.active) return;
+    changeStateWithFade(STATE.OVERWORLD, () => {
+      overworld.currentMap = data.target;
+      game.player.x = data.targetX * TILE;
+      game.player.y = data.targetY * TILE;
+      overworld.moving = false;
+    });
+  },
+  collectible: (data) => {
+    if (data.collected) return;
+    data.collected = true;
+    game.player.collectibles = game.player.collectibles || {};
+    game.player.collectibles[data.item] = (game.player.collectibles[data.item] || 0) + 1;
+    startDialogue([{ text: data.message || `Found ${data.item}!` }], {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD
+    });
+  }
+};
+
+// Main interaction handler (called on interact key press)
+function runInteraction() {
+  const facing = getFacingTile(game.player);
+  const map = MAPS[overworld.currentMap];
+  if (!map) return;
+
+  // Check for NPC interaction (existing system)
+  const npc = overworld.npcs.find(n => n.col === facing.col && n.row === facing.row);
+  if (npc && npc.dialogue) {
+    startDialogue(npc.dialogue, {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD,
+      onComplete: npc.onComplete || null
+    });
+    return;
+  }
+
+  // Check for interaction triggers
+  const trigger = findTriggerAt(map, facing.col, facing.row, 'interact');
+  if (trigger && trigger.interactType && INTERACTION_TYPES[trigger.interactType]) {
+    INTERACTION_TYPES[trigger.interactType](trigger);
+    return;
+  }
+
+  // Check object layer for inspectable objects
+  if (map.layers && map.layers.object) {
+    const objChar = map.layers.object[facing.row]?.[facing.col];
+    if (objChar && OBJECT_INTERACTIONS[objChar]) {
+      OBJECT_INTERACTIONS[objChar](facing.col, facing.row);
+      return;
+    }
+  }
+}
+
+// Object layer character -> interaction mapping
+const OBJECT_INTERACTIONS = {
+  'S': (col, row) => { // Sign
+    startDialogue([{ text: 'Sign: Use arrow keys to move, Z to interact!' }], {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD
+    });
+  },
+  'O': (col, row) => { // Pot/Plant
+    startDialogue([{ text: 'A decorative plant. It looks healthy!' }], {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD
+    });
+  },
+  'C': (col, row) => { // Crate
+    startDialogue([{ text: 'A wooden crate. It\'s tightly sealed.' }], {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD
+    });
+  },
+  'M': (col, row) => { // Terminal
+    startDialogue([{ text: 'Terminal: System operational. Context Intelligence online.' }], {
+      bgRender: renderOverworld,
+      returnState: STATE.OVERWORLD
+    });
+  }
+};
+
+// Layered map rendering system
+// Supports: ground, object, overlay layers
+function renderMapLayered(map, camX, camY) {
+  const startCol = Math.max(0, Math.floor(camX / TILE));
+  const startRow = Math.max(0, Math.floor(camY / TILE));
+  const endCol = Math.min(map.width, startCol + Math.ceil(GAME_W / TILE) + 1);
+  const endRow = Math.min(map.height, startRow + Math.ceil(GAME_H / TILE) + 1);
+
+  // Layer 1: Ground
+  const groundLayer = map.layers?.ground || map.data; // Backward compat
+  for (let row = startRow; row < endRow; row++) {
+    for (let col = startCol; col < endCol; col++) {
+      const ch = groundLayer[row]?.[col];
+      const tt = TILE_TYPES[ch];
+      if (tt) {
+        drawSprite(tt.sprite, col * TILE - camX, row * TILE - camY);
+      }
+    }
+  }
+
+  // Layer 2: Objects (rendered before player/NPCs)
+  if (map.layers?.object) {
+    for (let row = startRow; row < endRow; row++) {
+      for (let col = startCol; col < endCol; col++) {
+        const ch = map.layers.object[row]?.[col];
+        const tt = TILE_TYPES[ch];
+        if (tt && ch !== '.') {
+          drawSprite(tt.sprite, col * TILE - camX, row * TILE - camY);
+        }
+      }
+    }
+  }
+}
+
+// Enhanced isWalkable - checks both ground and object layers
+function isWalkableLayered(mapId, col, row) {
+  const map = MAPS[mapId];
+  if (!map || row < 0 || row >= map.height || col < 0 || col >= map.width) return false;
+
+  // Check ground layer
+  const groundLayer = map.layers?.ground || map.data;
+  const groundCh = groundLayer[row]?.[col];
+  const groundTT = TILE_TYPES[groundCh];
+  if (!groundTT || !groundTT.walkable) return false;
+
+  // Check object layer
+  if (map.layers?.object) {
+    const objCh = map.layers.object[row]?.[col];
+    if (objCh && objCh !== '.') {
+      const objTT = TILE_TYPES[objCh];
+      if (objTT && !objTT.walkable) return false;
+    }
+  }
+
+  // Check NPC collision
+  const npcBlock = overworld.npcs.some(n => n.col === col && n.row === row);
+  if (npcBlock) return false;
+
+  return true;
+}
+
+// Update isWalkable to use layered version if map has layers
+function isWalkable(mapId, col, row) {
+  const map = MAPS[mapId];
+  if (map && map.layers) {
+    return isWalkableLayered(mapId, col, row);
+  }
+  // Fallback to original
+  const ch = getTile(mapId, col, row);
+  const tt = TILE_TYPES[ch];
+  return tt ? tt.walkable : false;
+}
+
+// Add interact key to input system (use existing confirmPressed for now, add dedicated later)
+function interactPressed() {
+  return confirmPressed(); // For now, use existing confirm key (Z/Enter)
 }
 
 // Placeholder for battle start (will be built in Task 7)
@@ -1879,12 +2275,97 @@ function renderOverworld() {
   }
   renderNPCs();
   renderPlayer();
+
+  // PHASE 0: Render overlay layer (tiles drawn above player like tree canopy, roof edges)
+  const map = MAPS[overworld.currentMap];
+  if (map && map.layers && map.layers.overlay) {
+    const camX = overworld.camera.x;
+    const camY = overworld.camera.y;
+    const startCol = Math.max(0, Math.floor(camX / TILE));
+    const startRow = Math.max(0, Math.floor(camY / TILE));
+    const endCol = Math.min(map.width, startCol + Math.ceil(GAME_W / TILE) + 1);
+    const endRow = Math.min(map.height, startRow + Math.ceil(GAME_H / TILE) + 1);
+
+    for (let row = startRow; row < endRow; row++) {
+      for (let col = startCol; col < endCol; col++) {
+        const ch = map.layers.overlay[row]?.[col];
+        const tt = TILE_TYPES[ch];
+        if (tt && ch !== ' ' && ch !== '.') {
+          drawSprite(tt.sprite, col * TILE - camX, row * TILE - camY);
+        }
+      }
+    }
+  }
+
   renderHUD();
+
+  // PHASE 0: Debug overlay (press D to toggle)
+  if (game.debug) {
+    renderDebugOverlay();
+  }
 }
 
 function updateOverworld() {
   updatePlayerMovement();
   updateCamera();
+
+  // PHASE 0: Check for interaction key press (when not moving)
+  if (!overworld.moving && interactPressed() && !transition.active) {
+    runInteraction();
+  }
+}
+
+// PHASE 0: Debug overlay - visualizes collision, triggers, and layers
+function renderDebugOverlay() {
+  const map = MAPS[overworld.currentMap];
+  if (!map) return;
+
+  const camX = overworld.camera.x;
+  const camY = overworld.camera.y;
+  const startCol = Math.max(0, Math.floor(camX / TILE));
+  const startRow = Math.max(0, Math.floor(camY / TILE));
+  const endCol = Math.min(map.width, startCol + Math.ceil(GAME_W / TILE) + 1);
+  const endRow = Math.min(map.height, startRow + Math.ceil(GAME_H / TILE) + 1);
+
+  ctx.globalAlpha = 0.3;
+
+  // Visualize walkable tiles (green) vs blocked (red)
+  for (let row = startRow; row < endRow; row++) {
+    for (let col = startCol; col < endCol; col++) {
+      const walkable = isWalkable(overworld.currentMap, col, row);
+      ctx.fillStyle = walkable ? 'rgba(0,255,0,0.2)' : 'rgba(255,0,0,0.2)';
+      ctx.fillRect(col * TILE - camX, row * TILE - camY, TILE, TILE);
+    }
+  }
+
+  // Visualize triggers (yellow squares)
+  if (map.triggers) {
+    ctx.fillStyle = 'rgba(255,255,0,0.5)';
+    for (const t of map.triggers) {
+      ctx.fillRect(t.col * TILE - camX, t.row * TILE - camY, TILE, TILE);
+    }
+  }
+
+  // Visualize NPCs (blue squares)
+  ctx.fillStyle = 'rgba(0,0,255,0.5)';
+  for (const npc of overworld.npcs) {
+    ctx.fillRect(npc.col * TILE - camX, npc.row * TILE - camY, TILE, TILE);
+  }
+
+  ctx.globalAlpha = 1;
+
+  // Info text
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(5, 5, 250, 80);
+  ctx.fillStyle = '#00ff00';
+  ctx.font = '10px monospace';
+  const pCol = Math.floor(game.player.x / TILE);
+  const pRow = Math.floor(game.player.y / TILE);
+  ctx.fillText(`DEBUG MODE (Press D to toggle)`, 10, 18);
+  ctx.fillText(`Map: ${overworld.currentMap}`, 10, 32);
+  ctx.fillText(`Player: (${pCol}, ${pRow}) Dir: ${game.player.dir}`, 10, 46);
+  ctx.fillText(`Layers: ${map.layers ? 'YES' : 'NO'}`, 10, 60);
+  ctx.fillText(`Collectibles: ${JSON.stringify(game.player.collectibles)}`, 10, 74);
 }
 
 // Replace initOverworld with proper version
