@@ -2204,6 +2204,123 @@ function triggerShake(target, duration = 0.25) {
   battle.shakeTimer = duration;
 }
 
+// --- 6a: Effects Manager (V2 Polish FX) ---
+// Provides lightweight visual effects: screen shake, hit flash, particles, glow overlay
+
+const FXManager = {
+  shakeIntensity: 0,
+  shakeDuration: 0,
+  flashIntensity: 0,
+  flashDuration: 0,
+  particles: [],
+  glowIntensity: 0,
+
+  // Screen shake effect
+  shake(intensity = 1, duration = 0.15) {
+    this.shakeIntensity = intensity;
+    this.shakeDuration = duration;
+  },
+
+  // Hit flash effect (white flash overlay)
+  flash(intensity = 1, duration = 0.2) {
+    this.flashIntensity = intensity;
+    this.flashDuration = duration;
+  },
+
+  // Glow overlay effect
+  glow(intensity = 1, duration = 0.5) {
+    this.glowIntensity = intensity;
+  },
+
+  // Spawn particle burst
+  spawnBurst(x, y, count = 12, color = PAL.diamond, speed = 2) {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      this.particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0,
+        color,
+        size: 1 + Math.random() * 2
+      });
+    }
+  },
+
+  // Update effects
+  update(dt) {
+    // Shake decay
+    if (this.shakeDuration > 0) {
+      this.shakeDuration -= dt;
+    } else {
+      this.shakeIntensity = 0;
+    }
+
+    // Flash decay
+    if (this.flashDuration > 0) {
+      this.flashDuration -= dt;
+      this.flashIntensity = Math.max(0, this.flashIntensity - dt * 5);
+    } else {
+      this.flashIntensity = 0;
+    }
+
+    // Glow decay
+    if (this.glowIntensity > 0) {
+      this.glowIntensity = Math.max(0, this.glowIntensity - dt * 2);
+    }
+
+    // Update particles
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.15; // Gravity
+      p.life -= dt * 2;
+
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+      }
+    }
+  },
+
+  // Apply screen shake offset to canvas context
+  applyShake() {
+    if (this.shakeIntensity <= 0) return { x: 0, y: 0 };
+    const x = (Math.random() - 0.5) * this.shakeIntensity * 4;
+    const y = (Math.random() - 0.5) * this.shakeIntensity * 4;
+    return { x, y };
+  },
+
+  // Render all effects
+  render() {
+    // Render particles
+    ctx.globalAlpha = 1;
+    for (const p of this.particles) {
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Render flash overlay
+    if (this.flashIntensity > 0) {
+      ctx.globalAlpha = this.flashIntensity;
+      ctx.fillStyle = PAL.white;
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+    }
+
+    // Render glow overlay
+    if (this.glowIntensity > 0) {
+      ctx.globalAlpha = this.glowIntensity * 0.3;
+      ctx.fillStyle = PAL.diamond;
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+    }
+
+    ctx.globalAlpha = 1;
+  }
+};
+
 // --- 7: Enhanced Battle System (V2 Polish) ---
 // Provides turn-based menu, move selection, HP tween, and improved AI
 
@@ -3592,11 +3709,26 @@ function gameLoop(timestamp) {
   }
   updateTransition();
 
+  // Update effects
+  FXManager.update(game.dt);
+
   // Clear & render
   ctx.clearRect(0, 0, GAME_W, GAME_H);
+
+  // Apply screen shake offset
+  const shake = FXManager.applyShake();
+  ctx.save();
+  ctx.translate(shake.x, shake.y);
+
   if (handler) {
     handler.render();
   }
+
+  ctx.restore();
+
+  // Render effects (flash, glow, particles)
+  FXManager.render();
+
   renderTransition();
 
   requestAnimationFrame(gameLoop);
