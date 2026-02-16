@@ -160,6 +160,109 @@ function drawBorder(x, y, w, h, color = PAL.white, thickness = 1) {
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
+// --- 1f: Asset Loader & Atlas Manager (V2 Polish) ---
+// Loads sprite atlas or generates fallback from ASCII sprites
+const AssetLoader = {
+  atlasImage: null,
+  atlasData: null,
+  isReady: false,
+
+  async loadAtlas() {
+    try {
+      // Try to load external atlas
+      const imgReq = fetch('assets/sprites/atlas.png').then(r => r.blob()).then(b => createImageBitmap(b));
+      const dataReq = fetch('assets/sprites/atlas.json').then(r => r.json());
+
+      Promise.all([imgReq, dataReq]).then(([img, data]) => {
+        this.atlasImage = img;
+        this.atlasData = data;
+        this.isReady = true;
+        console.log('Atlas loaded successfully');
+      }).catch(err => {
+        console.warn('Failed to load atlas, using fallback:', err);
+        this.generateFallbackAtlas();
+      });
+    } catch (err) {
+      console.warn('Atlas load error, generating fallback:', err);
+      this.generateFallbackAtlas();
+    }
+  },
+
+  generateFallbackAtlas() {
+    // Generate atlas from existing ASCII sprites
+    const generator = new FallbackAtlasGenerator();
+    const { canvas, data } = generator.generate();
+    canvas.toBlob(blob => {
+      createImageBitmap(blob).then(img => {
+        this.atlasImage = img;
+        this.atlasData = data;
+        this.isReady = true;
+        console.log('Fallback atlas generated');
+      });
+    });
+  },
+
+  getSpriteBounds(spriteName) {
+    if (!this.atlasData || !this.atlasData.sprites) return null;
+    return this.atlasData.sprites[spriteName];
+  }
+};
+
+// --- 1g: Fallback Atlas Generator ---
+// Creates a sprite atlas from existing ASCII sprite definitions
+class FallbackAtlasGenerator {
+  constructor() {
+    this.spriteSize = 16;
+    this.padding = 2;
+    this.sprites = {};
+    this.canvas = null;
+    this.data = { sprites: {} };
+  }
+
+  generate() {
+    // Collect all sprite definitions from SPRITE_DEFS
+    const spriteNames = Object.keys(SPRITE_DEFS);
+    const gridSize = Math.ceil(Math.sqrt(spriteNames.length));
+    const atlasW = gridSize * (this.spriteSize + this.padding);
+    const atlasH = gridSize * (this.spriteSize + this.padding);
+
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = atlasW;
+    this.canvas.height = atlasH;
+    const ctx = this.canvas.getContext('2d');
+    ctx.fillStyle = '#0a0a1a';
+    ctx.fillRect(0, 0, atlasW, atlasH);
+
+    // Render each sprite to atlas
+    spriteNames.forEach((name, idx) => {
+      const gridX = idx % gridSize;
+      const gridY = Math.floor(idx / gridSize);
+      const spriteCanvas = getSprite(name);
+      if (spriteCanvas) {
+        this.addSpriteToAtlas(name, spriteCanvas, gridX, gridY);
+      }
+    });
+
+    return { canvas: this.canvas, data: this.data };
+  }
+
+  addSpriteToAtlas(name, spriteCanvas, gridX, gridY) {
+    const ctx = this.canvas.getContext('2d');
+    const x = gridX * (this.spriteSize + this.padding);
+    const y = gridY * (this.spriteSize + this.padding);
+
+    // Draw sprite to atlas
+    ctx.drawImage(spriteCanvas, x, y);
+
+    // Record sprite bounds in atlas data
+    this.data.sprites[name] = {
+      x, y,
+      w: this.spriteSize,
+      h: this.spriteSize
+    };
+  }
+}
+
 // --- 2a: Sprite Drawing System ---
 // Sprites are defined as 2D arrays of palette indices
 // Each sprite is an array of rows, each row is a string where each char maps to a color
@@ -205,6 +308,43 @@ function drawSpriteScaled(name, x, y, w, h) {
   const s = getSprite(name);
   if (s) ctx.drawImage(s, Math.floor(x), Math.floor(y), w, h);
 }
+
+// --- 2aa: Atlas Manager (hybrid atlas + fallback) ---
+// Provides unified sprite drawing that uses atlas when available or falls back to ASCII
+const AtlasManager = {
+  drawSprite(name, x, y) {
+    // Try to use atlas if available
+    if (AssetLoader.isReady && AssetLoader.atlasImage && AssetLoader.atlasData?.sprites?.[name]) {
+      const bounds = AssetLoader.atlasData.sprites[name];
+      ctx.drawImage(AssetLoader.atlasImage, bounds.x, bounds.y, bounds.w, bounds.h,
+                    Math.floor(x), Math.floor(y), bounds.w, bounds.h);
+    } else {
+      // Fall back to ASCII sprite system
+      drawSprite(name, x, y);
+    }
+  },
+
+  drawSpriteScaled(name, x, y, w, h) {
+    // Try to use atlas if available
+    if (AssetLoader.isReady && AssetLoader.atlasImage && AssetLoader.atlasData?.sprites?.[name]) {
+      const bounds = AssetLoader.atlasData.sprites[name];
+      ctx.drawImage(AssetLoader.atlasImage, bounds.x, bounds.y, bounds.w, bounds.h,
+                    Math.floor(x), Math.floor(y), w, h);
+    } else {
+      // Fall back to ASCII sprite system
+      drawSpriteScaled(name, x, y, w, h);
+    }
+  },
+
+  drawSpriteRotated(name, x, y, angle) {
+    ctx.save();
+    ctx.translate(Math.floor(x + 8), Math.floor(y + 8)); // Rotate around center (assuming 16x16)
+    ctx.rotate(angle);
+    ctx.translate(-8, -8);
+    this.drawSprite(name, 0, 0);
+    ctx.restore();
+  }
+};
 
 // Master sprite definitions - populated in 2b-2g
 const SPRITE_DEFS = {};
@@ -890,6 +1030,20 @@ defSprite('badge', [
   '.....YYYY.....',
   '....YYYYYY....',
 ], {Y: PAL.gold, W: PAL.white, N: PAL.diamond}, 1);
+
+// Generate fallback atlas once all sprites are defined
+if (!AssetLoader.atlasImage) {
+  const generator = new FallbackAtlasGenerator();
+  const { canvas, data } = generator.generate();
+  canvas.toBlob(blob => {
+    createImageBitmap(blob).then(img => {
+      AssetLoader.atlasImage = img;
+      AssetLoader.atlasData = data;
+      AssetLoader.isReady = true;
+      console.log('Fallback atlas generated with', Object.keys(data.sprites).length, 'sprites');
+    });
+  });
+}
 
 // --- 1f: State Machine ---
 // --- 14: Screen Transition System ---
@@ -2050,7 +2204,169 @@ function triggerShake(target, duration = 0.25) {
   battle.shakeTimer = duration;
 }
 
-// 7b & 7c & 7d & 7e: Battle update
+// --- 7: Enhanced Battle System (V2 Polish) ---
+// Provides turn-based menu, move selection, HP tween, and improved AI
+
+const BattleMenuState = {
+  MAIN: 'main',        // Fight / Agent / Info / Run
+  MOVE_SELECT: 'move_select',  // Choose specific move
+  ANIMATION: 'animation'       // Playing turn animation
+};
+
+const BattleSystem = {
+  menuState: BattleMenuState.MAIN,
+  menuIndex: 0,
+  moveIndex: 0,
+  hpTween: { active: false, start: 0, end: 0, duration: 0, elapsed: 0 },
+
+  init() {
+    this.menuState = BattleMenuState.MAIN;
+    this.menuIndex = 0;
+    this.moveIndex = 0;
+    this.hpTween = { active: false, start: 0, end: 0, duration: 0, elapsed: 0 };
+  },
+
+  // Get main menu options
+  getMainMenuOptions() {
+    return ['Fight', 'Agent', 'Info', 'Run'];
+  },
+
+  // Handle main menu navigation
+  updateMainMenu() {
+    const opts = this.getMainMenuOptions();
+    if (upPressed()) this.menuIndex = (this.menuIndex - 1 + opts.length) % opts.length;
+    if (downPressed()) this.menuIndex = (this.menuIndex + 1) % opts.length;
+
+    if (confirmPressed()) {
+      switch (this.menuIndex) {
+        case 0: // Fight
+          this.menuState = BattleMenuState.MOVE_SELECT;
+          this.moveIndex = 0;
+          break;
+        case 1: // Agent - show team
+          battle.message = 'Agent feature coming soon';
+          break;
+        case 2: // Info
+          battle.message = battle.player.name + ' (Lv ' + battle.player.level + ')';
+          break;
+        case 3: // Run
+          battle.message = 'Escaping...';
+          battle.active = false;
+          changeState(STATE.OVERWORLD);
+          break;
+      }
+    }
+  },
+
+  // Handle move selection
+  updateMoveSelect() {
+    const moves = battle.player.moves;
+    const moveCount = moves.length;
+    const cols = 2;
+
+    if (upPressed()) this.moveIndex = Math.max(0, this.moveIndex - cols);
+    if (downPressed()) this.moveIndex = Math.min(moveCount - 1, this.moveIndex + cols);
+    if (leftPressed()) this.moveIndex = Math.max(0, this.moveIndex - 1);
+    if (rightPressed()) this.moveIndex = Math.min(moveCount - 1, this.moveIndex + 1);
+
+    if (confirmPressed()) {
+      const move = moves[this.moveIndex];
+      battle._playerMove = move;
+      battle._enemyMove = this.enemyChooseMove();
+      this.menuState = BattleMenuState.ANIMATION;
+      this.executeTurn();
+    }
+
+    if (cancelPressed()) {
+      this.menuState = BattleMenuState.MAIN;
+      this.menuIndex = 0;
+    }
+  },
+
+  // Execute battle turn with HP tween
+  executeTurn() {
+    const playerMove = battle._playerMove;
+    const enemyMove = battle._enemyMove;
+
+    // Calculate damage
+    const playerDmg = calcDamage(battle.player, playerMove, battle.enemy);
+    const enemyDmg = calcDamage(battle.enemy, enemyMove, battle.player);
+
+    // Determine turn order
+    if (battle.player.spd >= battle.enemy.spd) {
+      // Player attacks first
+      this.tweenHP('enemy', battle.enemy.hp, Math.max(0, battle.enemy.hp - playerDmg), 0.5);
+      battle.enemy.hp = Math.max(0, battle.enemy.hp - playerDmg);
+      triggerFlash('enemy', 0.3);
+      showBattleMessage(battle.player.name + ' used ' + playerMove.name + '! ' + playerDmg + ' damage!', 1.5);
+    } else {
+      // Enemy attacks first
+      this.tweenHP('player', battle.player.hp, Math.max(0, battle.player.hp - enemyDmg), 0.5);
+      battle.player.hp = Math.max(0, battle.player.hp - enemyDmg);
+      triggerFlash('player', 0.3);
+      showBattleMessage(battle.enemy.name + ' used ' + enemyMove.name + '! ' + enemyDmg + ' damage!', 1.5);
+    }
+  },
+
+  // Tween HP bar animation
+  tweenHP(target, startHp, endHp, duration) {
+    this.hpTween = {
+      active: true,
+      target,
+      start: startHp,
+      end: endHp,
+      duration,
+      elapsed: 0
+    };
+  },
+
+  updateHPTween(dt) {
+    if (!this.hpTween.active) return;
+
+    this.hpTween.elapsed += dt;
+    if (this.hpTween.elapsed >= this.hpTween.duration) {
+      this.hpTween.active = false;
+      return;
+    }
+
+    const t = this.hpTween.elapsed / this.hpTween.duration;
+    const currentHp = this.hpTween.start + (this.hpTween.end - this.hpTween.start) * t;
+
+    // Update displayed HP (for smooth animation)
+    if (this.hpTween.target === 'player') {
+      battle.displayPlayerHp = currentHp;
+    } else {
+      battle.displayEnemyHp = currentHp;
+    }
+  },
+
+  // Improved enemy AI with move priorities
+  enemyChooseMove() {
+    const moves = battle.enemy.moves;
+    const hpRatio = battle.enemy.hp / battle.enemy.maxHp;
+
+    // Prioritize defensive moves when low HP
+    if (hpRatio < 0.3) {
+      const defensiveMoves = moves.filter(m => m.name && m.name.includes('Shield'));
+      if (defensiveMoves.length > 0) {
+        return defensiveMoves[Math.floor(Math.random() * defensiveMoves.length)];
+      }
+    }
+
+    // Prioritize strong moves when healthy
+    if (hpRatio > 0.7) {
+      const strongMoves = moves.filter(m => m.power && m.power > 30);
+      if (strongMoves.length > 0) {
+        return strongMoves[Math.floor(Math.random() * strongMoves.length)];
+      }
+    }
+
+    // Random move otherwise
+    return moves[Math.floor(Math.random() * moves.length)];
+  }
+};
+
+// --- 7b & 7c & 7d & 7e: Battle update
 function updateBattle() {
   if (!battle.active) return;
 
@@ -3370,6 +3686,8 @@ updateDialogue = function() {
 
 // --- Boot ---
 console.log('Diamond Quest: Engine initialized');
+// Initialize asset loader for atlas pipeline
+AssetLoader.loadAtlas().catch(err => console.warn('Asset loader init error:', err));
 requestAnimationFrame(gameLoop);
 
 </script>
