@@ -465,6 +465,110 @@ function drawCharacterShadow(x, y) {
   ctx.restore();
 }
 
+// PHASE 1D: Parallax Background System
+const parallax = {
+  layers: [],
+  fogOffset: 0,
+  fogSpeed: 0.05,
+};
+
+// Initialize parallax layers (call when entering overworld)
+function initParallax() {
+  parallax.layers = [
+    { speed: 0.1, y: 0, height: 80, color: 'rgba(100, 120, 150, 0.15)', pattern: 'mountains' },
+    { speed: 0.3, y: 40, height: 60, color: 'rgba(180, 190, 210, 0.2)', pattern: 'clouds' },
+    { speed: 0.5, y: 60, height: 40, color: 'rgba(220, 225, 235, 0.25)', pattern: 'clouds' },
+  ];
+}
+
+// Update parallax offsets based on camera movement
+function updateParallax(dt) {
+  // Update fog animation
+  parallax.fogOffset += parallax.fogSpeed * dt;
+  if (parallax.fogOffset > 1) parallax.fogOffset -= 1;
+}
+
+// Render parallax layers behind the map
+function renderParallax(camX, camY) {
+  if (parallax.layers.length === 0) return;
+
+  for (const layer of parallax.layers) {
+    const offsetX = camX * layer.speed;
+
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+
+    if (layer.pattern === 'mountains') {
+      // Procedural mountains
+      ctx.fillStyle = layer.color;
+      ctx.beginPath();
+      ctx.moveTo(0, layer.y + layer.height);
+
+      const numPeaks = 8;
+      const peakWidth = (GAME_W + 100) / numPeaks;
+      for (let i = 0; i < numPeaks; i++) {
+        const peakX = (i * peakWidth - offsetX) % (GAME_W + 100);
+        const peakHeight = 20 + (Math.sin(i * 1.3) * 15);
+        ctx.lineTo(peakX, layer.y + layer.height - peakHeight);
+        ctx.lineTo(peakX + peakWidth / 2, layer.y + layer.height);
+      }
+      ctx.lineTo(GAME_W, layer.y + layer.height);
+      ctx.closePath();
+      ctx.fill();
+
+    } else if (layer.pattern === 'clouds') {
+      // Procedural clouds (soft circles)
+      ctx.fillStyle = layer.color;
+      const numClouds = 5;
+      const cloudSpacing = (GAME_W + 150) / numClouds;
+
+      for (let i = 0; i < numClouds; i++) {
+        const cloudX = (i * cloudSpacing - offsetX) % (GAME_W + 150);
+        const cloudY = layer.y + (Math.sin(i * 2.1) * 15);
+        const cloudW = 40 + (Math.cos(i * 1.7) * 20);
+        const cloudH = 15 + (Math.sin(i * 1.4) * 8);
+
+        // Draw cloud as 3 overlapping ellipses
+        ctx.beginPath();
+        ctx.ellipse(cloudX, cloudY, cloudW * 0.5, cloudH * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(cloudX + cloudW * 0.3, cloudY, cloudW * 0.4, cloudH * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(cloudX - cloudW * 0.2, cloudY + 3, cloudW * 0.35, cloudH * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+}
+
+// Render fog overlay effect
+function renderFog() {
+  ctx.save();
+  ctx.globalAlpha = 0.1;
+
+  // Horizontal fog bands with animated offset
+  const numBands = 6;
+  const bandHeight = GAME_H / numBands;
+
+  for (let i = 0; i < numBands; i++) {
+    const offset = (parallax.fogOffset + i * 0.2) % 1;
+    const y = i * bandHeight;
+    const gradient = ctx.createLinearGradient(0, y, GAME_W, y + bandHeight);
+    gradient.addColorStop(0, 'rgba(200, 210, 230, 0)');
+    gradient.addColorStop(offset, 'rgba(200, 210, 230, 0.3)');
+    gradient.addColorStop(1, 'rgba(200, 210, 230, 0)');
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, y, GAME_W, bandHeight);
+  }
+
+  ctx.restore();
+}
+
 // Master sprite definitions - populated in 2b-2g
 const SPRITE_DEFS = {};
 
@@ -2857,6 +2961,9 @@ MAPS.foundry = {
 
 // 5d & 5e: Overworld state handlers
 function renderOverworld() {
+  // Phase 1D: Render parallax background layers
+  renderParallax(overworld.camera.x, overworld.camera.y);
+
   renderMap();
   // Ambient floating particles
   for (let i = 0; i < 8; i++) {
@@ -2888,6 +2995,9 @@ function renderOverworld() {
       }
     }
   }
+
+  // Phase 1D: Render fog overlay
+  renderFog();
 
   renderHUD();
 
@@ -2968,6 +3078,9 @@ function initOverworld() {
   game.player.dir = 0;
   overworld.npcs = [];
   updateCamera();
+
+  // Phase 1D: Initialize parallax background
+  initParallax();
 }
 
 stateHandlers[STATE.OVERWORLD] = { update: updateOverworld, render: renderOverworld };
@@ -4880,6 +4993,9 @@ function gameLoop(timestamp) {
 
   // Update character animations (Phase 1C)
   updateCharAnimations(game.dt);
+
+  // Update parallax backgrounds (Phase 1D)
+  updateParallax(game.dt);
 
   // Update current state
   const handler = stateHandlers[game.state];
