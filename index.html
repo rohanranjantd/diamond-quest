@@ -4063,6 +4063,7 @@ startBattle = function(enemyId, level, options = {}) {
   battle.player = game.player.creature;
   battle.enemy = createCreature(enemyId, level);
   battle.phase = 'intro';
+  battle.phaseStartFrame = game.frame; // PHASE 4: Track frame for animations
   battle.moveIndex = 0;
   battle.message = `A wild ${battle.enemy.name} appeared!`;
   battle.messageTimer = 1.5;
@@ -4486,6 +4487,7 @@ function updateBattle() {
       battle.introTimer += game.dt;
       if (battle.introTimer > 1.5 || confirmPressed()) {
         battle.phase = 'select';
+        battle.phaseStartFrame = game.frame; // PHASE 4
         battle.message = '';
       }
       break;
@@ -4504,11 +4506,13 @@ function updateBattle() {
 
         if (battle.player.spd >= battle.enemy.spd) {
           battle.phase = 'playerTurn';
+          battle.phaseStartFrame = game.frame; // PHASE 4
           battle._playerMove = playerMove;
           battle._enemyMove = enemyMove;
           executePlayerTurn();
         } else {
           battle.phase = 'enemyTurn';
+          battle.phaseStartFrame = game.frame; // PHASE 4
           battle._playerMove = playerMove;
           battle._enemyMove = enemyMove;
           executeEnemyTurn();
@@ -4523,6 +4527,7 @@ function updateBattle() {
         if (battle.enemy.hp <= 0) {
           battle.enemy.hp = 0;
           battle.phase = 'result';
+          battle.phaseStartFrame = game.frame; // PHASE 4
           battle.result = 'win';
           battle.xpGained = Math.floor(battle.enemy.level * 12 + 15);
           showBattleMessage(`${battle.enemy.name} was defeated!`, 1.5);
@@ -4530,6 +4535,7 @@ function updateBattle() {
         } else {
           // Enemy's turn
           battle.phase = 'enemyTurn';
+          battle.phaseStartFrame = game.frame; // PHASE 4
           executeEnemyTurn();
         }
       }
@@ -4542,16 +4548,19 @@ function updateBattle() {
         if (battle.player.hp <= 0) {
           battle.player.hp = 0;
           battle.phase = 'result';
+          battle.phaseStartFrame = game.frame; // PHASE 4
           battle.result = 'lose';
           showBattleMessage(`${battle.player.name} fainted!`, 1.5);
           battle.turnTimer = 1.5;
         } else if (battle._playerMove && battle.phase === 'enemyTurn') {
           // If enemy went first, now player goes
           battle.phase = 'playerTurn';
+          battle.phaseStartFrame = game.frame; // PHASE 4
           executePlayerTurn();
         } else {
           // Back to select
           battle.phase = 'select';
+          battle.phaseStartFrame = game.frame; // PHASE 4
           battle.message = '';
         }
       }
@@ -4927,19 +4936,36 @@ stateHandlers[STATE.EVOLUTION] = { update: updateEvolution, render: renderEvolut
 
 // 7b: Battle rendering
 function renderBattle() {
-  // Background
-  const grad = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  // PHASE 4: Enhanced battle camera with sway
+  const battleCameraSway = {
+    x: Math.sin(game.frame * 0.02) * 2,
+    y: Math.cos(game.frame * 0.03) * 1.5
+  };
+
+  ctx.save();
+  ctx.translate(battleCameraSway.x, battleCameraSway.y);
+
+  // Animated gradient background
+  const gradOffset = Math.sin(game.frame * 0.01) * 20;
+  const grad = ctx.createLinearGradient(0, gradOffset, 0, GAME_H + gradOffset);
   grad.addColorStop(0, '#1a1a4e');
-  grad.addColorStop(1, '#0a0a2e');
+  grad.addColorStop(0.5, '#0a0a2e');
+  grad.addColorStop(1, '#1a1a4e');
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, GAME_W, GAME_H);
-  // Diamond constellation particles
-  for (let i = 0; i < 12; i++) {
-    const sx = (i * 67 + game.frame * 0.15) % GAME_W;
-    const sy = (i * 41 + Math.sin(game.frame * 0.01 + i) * 6) % 100;
-    ctx.fillStyle = 'rgba(125,249,255,0.2)';
-    ctx.fillRect(Math.floor(sx), Math.floor(sy), 1, 1);
+  ctx.fillRect(-10, -10, GAME_W + 20, GAME_H + 20);
+
+  // Enhanced diamond constellation particles with depth
+  for (let i = 0; i < 20; i++) {
+    const depth = (i % 3) * 0.3 + 0.4; // 3 depth layers
+    const sx = (i * 67 + game.frame * (0.1 * depth)) % (GAME_W + 20);
+    const sy = (i * 41 + Math.sin(game.frame * 0.01 + i) * 8) % (GAME_H * 0.4);
+    const alpha = 0.1 + depth * 0.15;
+    const size = depth > 0.6 ? 2 : 1;
+    ctx.fillStyle = `rgba(125,249,255,${alpha})`;
+    ctx.fillRect(Math.floor(sx), Math.floor(sy), size, size);
   }
+
+  ctx.restore();
 
   // Battle field line
   drawRect(0, 100, GAME_W, 2, PAL.grey);
@@ -4949,17 +4975,21 @@ function renderBattle() {
     drawText('BOSS', GAME_W / 2 - 10, 104, bFlash);
   }
 
-  // Enemy creature (top-right)
-  let ex = 170, ey = 25;
+  // Enemy creature (top-right) - PHASE 4: Larger scale for enemy
+  let ex = 170, ey = 20;
+  let enemyScale = 56; // Slightly larger than player
+  let enemyBounce = Math.sin(game.frame * 0.05) * 2; // Idle floating
+
   if (battle.shakeTimer > 0 && battle.shakeTarget === 'enemy') {
-    ex += Math.sin(game.frame * 2) * 3;
+    ex += Math.sin(game.frame * 2) * 4;
+    ey += Math.cos(game.frame * 2) * 2;
   }
   if (battle.flashTimer > 0 && battle.flashTarget === 'enemy') {
     if (Math.sin(game.frame * 1.5) > 0) {
-      drawSpriteScaled(battle.enemy.sprite, ex, ey, 48, 48);
+      drawSpriteScaled(battle.enemy.sprite, ex, ey + enemyBounce, enemyScale, enemyScale);
     }
   } else if (battle.enemy.hp > 0) {
-    drawSpriteScaled(battle.enemy.sprite, ex, ey, 48, 48);
+    drawSpriteScaled(battle.enemy.sprite, ex, ey + enemyBounce, enemyScale, enemyScale);
   }
 
   // Enemy HP bar (top-left area)
@@ -4972,17 +5002,21 @@ function renderBattle() {
   drawRect(14, 26, Math.floor(108 * eHpPct), 6, eHpPct > 0.5 ? PAL.green : eHpPct > 0.25 ? PAL.yellow : PAL.red);
   drawText(`${battle.enemy.hp}/${battle.enemy.maxHp}`, 14, 34, PAL.grey);
 
-  // Player creature (bottom-left)
-  let px = 30, py = 70;
+  // Player creature (bottom-left) - PHASE 4: Add depth and animation
+  let px = 30, py = 75;
+  let playerScale = 48;
+  let playerBounce = Math.sin(game.frame * 0.04) * 1.5; // Slower idle
+
   if (battle.shakeTimer > 0 && battle.shakeTarget === 'player') {
-    px += Math.sin(game.frame * 2) * 3;
+    px += Math.sin(game.frame * 2) * 4;
+    py += Math.cos(game.frame * 2) * 2;
   }
   if (battle.flashTimer > 0 && battle.flashTarget === 'player') {
     if (Math.sin(game.frame * 1.5) > 0) {
-      drawSpriteScaled(battle.player.sprite, px, py, 48, 48);
+      drawSpriteScaled(battle.player.sprite, px, py + playerBounce, playerScale, playerScale);
     }
   } else if (battle.player.hp > 0) {
-    drawSpriteScaled(battle.player.sprite, px, py, 48, 48);
+    drawSpriteScaled(battle.player.sprite, px, py + playerBounce, playerScale, playerScale);
   }
 
   // Player HP bar (right side)
@@ -5006,19 +5040,22 @@ function renderBattle() {
   drawRect(134, 112, 108, 3, PAL.dark);
   drawRect(134, 112, Math.floor(108 * xpPct), 3, PAL.blue);
 
-  // Bottom section: message or move select
-  drawRect(0, 126, GAME_W, GAME_H - 126, 'rgba(10, 10, 26, 0.95)');
-  drawBorder(0, 126, GAME_W, GAME_H - 126, PAL.white);
+  // Bottom section: message or move select - PHASE 4: Add slide-in animation
+  const menuSlide = battle.phase === 'select' ?
+    Math.max(0, 1 - (game.frame - battle.phaseStartFrame) / 10) * 50 : 0;
+
+  drawRect(0, 126 + menuSlide, GAME_W, GAME_H - 126, 'rgba(10, 10, 26, 0.95)');
+  drawBorder(0, 126 + menuSlide, GAME_W, GAME_H - 126, PAL.white);
 
   if (battle.phase === 'select') {
-    // Move selection grid
-    drawText('Choose a move:', 8, 130, PAL.white);
+    // Move selection grid with slide-in
+    drawText('Choose a move:', 8, 130 + menuSlide, PAL.white);
     const moves = battle.player.moves;
     for (let i = 0; i < moves.length; i++) {
       const col = i % 2;
       const row = Math.floor(i / 2);
       const mx = 8 + col * 124;
-      const my = 146 + row * 28;
+      const my = 146 + row * 28 + menuSlide;
       const selected = (i === battle.moveIndex);
 
       drawRect(mx, my, 118, 24, selected ? PAL.mid : PAL.dark);
@@ -5029,18 +5066,18 @@ function renderBattle() {
 
     // Move description
     if (moves[battle.moveIndex]) {
-      drawText(moves[battle.moveIndex].desc, 8, 206, PAL.cyan);
+      drawText(moves[battle.moveIndex].desc, 8, 206 + menuSlide, PAL.cyan);
     }
   } else {
     // Message display
-    drawText(battle.message, 8, 140, PAL.white);
+    drawText(battle.message, 8, 140 + menuSlide, PAL.white);
 
     // Result details
     if (battle.phase === 'result' && battle.result === 'win') {
-      drawText(`+${battle.xpGained} XP`, 8, 160, PAL.gold);
-      drawText('Press ENTER to continue', 8, 180, PAL.grey);
+      drawText(`+${battle.xpGained} XP`, 8, 160 + menuSlide, PAL.gold);
+      drawText('Press ENTER to continue', 8, 180 + menuSlide, PAL.grey);
     } else if (battle.phase === 'result' && battle.result === 'lose') {
-      drawText('Press ENTER to continue', 8, 160, PAL.grey);
+      drawText('Press ENTER to continue', 8, 160 + menuSlide, PAL.grey);
     }
   }
 
