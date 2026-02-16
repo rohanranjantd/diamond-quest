@@ -2573,7 +2573,105 @@ function startEvolution(creature, newId) {
   changeState(STATE.EVOLUTION);
 }
 
-// 8b: Evolution animation update
+// --- 8a: Evolution Director (V2 Polish Cinematics) ---
+// Provides cinematic evolution sequence with vignette, particles, and animations
+
+const EvolutionDirector = {
+  particles: [],
+  vignetteAlpha: 0,
+  particlePool: [],
+
+  init() {
+    this.particles = [];
+    this.vignetteAlpha = 0;
+    this.particlePool = [];
+  },
+
+  // Initialize particles for evolution sequence
+  spawnParticles(centerX, centerY, count = 24) {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const speed = 1.5 + Math.random() * 1.5;
+
+      const particle = {
+        x: centerX,
+        y: centerY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0,
+        decay: 0.5 + Math.random() * 0.5,
+        size: 2 + Math.random() * 2,
+        color: Math.random() > 0.5 ? PAL.diamond : PAL.gold
+      };
+      this.particles.push(particle);
+    }
+  },
+
+  // Update particles
+  updateParticles(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.1; // Gravity
+      p.life -= dt * p.decay;
+
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+      }
+    }
+  },
+
+  // Render particles
+  renderParticles() {
+    for (const p of this.particles) {
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  },
+
+  // Render vignette fade effect
+  renderVignette(alpha) {
+    if (alpha <= 0) return;
+
+    // Create radial gradient for vignette
+    const grad = ctx.createRadialGradient(GAME_W / 2, GAME_H / 2, 40, GAME_W / 2, GAME_H / 2, 150);
+    grad.addColorStop(0, `rgba(0, 0, 0, 0)`);
+    grad.addColorStop(1, `rgba(0, 0, 0, ${alpha * 0.8})`);
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+  },
+
+  // Animate name banner with slide-in effect
+  renderNameBanner(text, alpha, yOffset = 0) {
+    const bannerY = GAME_H / 2 + 80 + yOffset;
+    const bannerAlpha = Math.min(1, alpha * 2); // Appear faster
+
+    ctx.globalAlpha = bannerAlpha;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    const textWidth = text.length * 8 * 2; // Approximate width for size 2 text
+    ctx.fillRect((GAME_W - textWidth) / 2 - 10, bannerY - 15, textWidth + 20, 30);
+    ctx.globalAlpha = 1;
+
+    drawTextCentered(text, bannerY, PAL.gold, 2);
+  },
+
+  // Create flash effect
+  renderFlash(intensity) {
+    if (intensity <= 0) return;
+    ctx.globalAlpha = intensity;
+    ctx.fillStyle = PAL.white;
+    ctx.fillRect(0, 0, GAME_W, GAME_H);
+    ctx.globalAlpha = 1;
+  }
+};
+
+// --- 8b: Evolution animation update
 function updateEvolution() {
   if (!evolution.active) return;
   evolution.timer += game.dt;
@@ -2608,12 +2706,19 @@ function updateEvolution() {
         c.hp = c.maxHp;
         // 8c: Learn new moves
         c.moves = [...newTmpl.moves];
+
+        // Spawn particles around center when evolution completes
+        EvolutionDirector.spawnParticles(GAME_W / 2, GAME_H / 2 + 40, 32);
+
         evolution.phase = 'reveal';
         evolution.timer = 0;
       }
       break;
 
     case 'reveal':
+      // Update particles
+      EvolutionDirector.updateParticles(game.dt);
+
       // Show new creature
       if (evolution.timer > 1.5 || confirmPressed()) {
         evolution.phase = 'done';
@@ -2670,9 +2775,20 @@ function renderEvolution() {
       break;
 
     case 'reveal':
-      // Show new creature with sparkles
+      // Show new creature with enhanced cinematic effects
+      // Render particles
+      EvolutionDirector.renderParticles();
+
+      // Render vignette effect
+      EvolutionDirector.renderVignette(Math.min(1, evolution.timer * 0.5));
+
+      // Draw new sprite with glow
+      ctx.globalAlpha = 0.2;
+      drawRect(cx - 10, cy - 10, 68, 68, PAL.diamond);
+      ctx.globalAlpha = 1;
       drawSpriteScaled(evolution.newSprite, cx, cy, 48, 48);
-      // Diamond sparkle particles
+
+      // Diamond sparkle particles (circular pattern)
       for (let i = 0; i < 12; i++) {
         const angle = (i / 12) * Math.PI * 2 + game.frame * 0.03;
         const dist = 30 + Math.sin(game.frame * 0.08 + i) * 10;
@@ -2687,9 +2803,15 @@ function renderEvolution() {
         ctx.closePath();
         ctx.fill();
       }
-      drawTextCentered(`${evolution.newName}!`, 130, PAL.gold, 2);
+
+      // Name banner with animation
+      const bannerAlpha = Math.min(1, (evolution.timer - 0.3) * 2);
+      EvolutionDirector.renderNameBanner(`${evolution.newName}!`, bannerAlpha);
+
       drawTextCentered('Evolution complete!', 155, PAL.diamond);
-      drawTextCentered('Press ENTER', 180, PAL.grey);
+      if (evolution.timer > 0.8) {
+        drawTextCentered('Press ENTER', 180, PAL.grey);
+      }
       break;
   }
 }
