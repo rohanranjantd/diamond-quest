@@ -371,6 +371,100 @@ const AtlasManager = {
   }
 };
 
+// ============================================================
+// PHASE 1: B2W2 VISUAL ENGINE - Animation System
+// ============================================================
+
+// Animation registry for multi-frame sprites
+const ANIMATIONS = {};
+
+// Define an animated sprite (multiple frames)
+function defAnimation(name, frames, fps = 6) {
+  ANIMATIONS[name] = {
+    frames: frames.map(frameName => ({ sprite: frameName, duration: 1000 / fps })),
+    loop: true,
+    currentFrame: 0,
+    elapsed: 0
+  };
+}
+
+// Animation state tracker for tile animations
+const tileAnimState = {
+  water: { frame: 0, timer: 0, fps: 4 },
+  grass: { frame: 0, timer: 0, fps: 2 },
+  tech: { frame: 0, timer: 0, fps: 6 }
+};
+
+// Update animation timers
+function updateAnimations(dt) {
+  // Update water animation
+  tileAnimState.water.timer += dt;
+  if (tileAnimState.water.timer >= 1 / tileAnimState.water.fps) {
+    tileAnimState.water.frame = (tileAnimState.water.frame + 1) % 3;
+    tileAnimState.water.timer = 0;
+  }
+
+  // Update grass animation
+  tileAnimState.grass.timer += dt;
+  if (tileAnimState.grass.timer >= 1 / tileAnimState.grass.fps) {
+    tileAnimState.grass.frame = (tileAnimState.grass.frame + 1) % 2;
+    tileAnimState.grass.timer = 0;
+  }
+
+  // Update tech floor animation
+  tileAnimState.tech.timer += dt;
+  if (tileAnimState.tech.timer >= 1 / tileAnimState.tech.fps) {
+    tileAnimState.tech.frame = (tileAnimState.tech.frame + 1) % 3;
+    tileAnimState.tech.timer = 0;
+  }
+}
+
+// Get animated sprite name based on current frame
+function getAnimatedSprite(baseName, type) {
+  if (type === 'water') {
+    return baseName + '_' + tileAnimState.water.frame;
+  } else if (type === 'grass') {
+    return baseName + '_' + tileAnimState.grass.frame;
+  } else if (type === 'tech') {
+    return baseName + '_' + tileAnimState.tech.frame;
+  }
+  return baseName;
+}
+
+// Character animation state
+const charAnimState = {
+  walkCycle: { frame: 0, timer: 0, fps: 8 },
+  idleCycle: { frame: 0, timer: 0, fps: 2 }
+};
+
+// Update character animations
+function updateCharAnimations(dt) {
+  // Walk cycle
+  charAnimState.walkCycle.timer += dt;
+  if (charAnimState.walkCycle.timer >= 1 / charAnimState.walkCycle.fps) {
+    charAnimState.walkCycle.frame = (charAnimState.walkCycle.frame + 1) % 4;
+    charAnimState.walkCycle.timer = 0;
+  }
+
+  // Idle breathing
+  charAnimState.idleCycle.timer += dt;
+  if (charAnimState.idleCycle.timer >= 1 / charAnimState.idleCycle.fps) {
+    charAnimState.idleCycle.frame = (charAnimState.idleCycle.frame + 1) % 2;
+    charAnimState.idleCycle.timer = 0;
+  }
+}
+
+// Draw character shadow (small ellipse beneath sprites)
+function drawCharacterShadow(x, y) {
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.ellipse(x + 8, y + 14, 6, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 // Master sprite definitions - populated in 2b-2g
 const SPRITE_DEFS = {};
 
@@ -458,6 +552,315 @@ defSprite('player_right', [
   '...BBB..BBB.',
   '...KKK..KKK.',
   '...KK....KK.',
+], C_PLAYER, 1);
+
+// PHASE 1C: Player Walk Cycle Animations (4 frames per direction)
+// Down walk cycle
+defSprite('player_down_0', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HSSHSSHH..',
+  '..HSWSHSWH..',
+  '..HSSSSSSH..',
+  '...HSSSSH...',
+  '....SSSS....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '...BB..BB...',
+  '..BBB..BBB..',
+  '..KKK..KKK..',
+  '..KK....KK..',
+], C_PLAYER, 1);
+
+defSprite('player_down_1', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HSSHSSHH..',
+  '..HSWSHSWH..',
+  '..HSSSSSSH..',
+  '...HSSSSH...',
+  '....SSSS....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '..BB....BB..',
+  '.BBB....BBB.',
+  '.KKK....KKK.',
+  '.KK......KK.',
+], C_PLAYER, 1);
+
+defSprite('player_down_2', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HSSHSSHH..',
+  '..HSWSHSWH..',
+  '..HSSSSSSH..',
+  '...HSSSSH...',
+  '....SSSS....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '...BB..BB...',
+  '..BBB..BBB..',
+  '..KKK..KKK..',
+  '..KK....KK..',
+], C_PLAYER, 1);
+
+defSprite('player_down_3', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HSSHSSHH..',
+  '..HSWSHSWH..',
+  '..HSSSSSSH..',
+  '...HSSSSH...',
+  '....SSSS....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '.BB....BB...',
+  'BBB....BBB..',
+  'KKK....KKK..',
+  'KK......KK..',
+], C_PLAYER, 1);
+
+// Up walk cycle
+defSprite('player_up_0', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '...HHHHHH...',
+  '....HHHH....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '...BB..BB...',
+  '..BBB..BBB..',
+  '..KKK..KKK..',
+  '..KK....KK..',
+], C_PLAYER, 1);
+
+defSprite('player_up_1', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '...HHHHHH...',
+  '....HHHH....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '..BB....BB..',
+  '.BBB....BBB.',
+  '.KKK....KKK.',
+  '.KK......KK.',
+], C_PLAYER, 1);
+
+defSprite('player_up_2', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '...HHHHHH...',
+  '....HHHH....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '...BB..BB...',
+  '..BBB..BBB..',
+  '..KKK..KKK..',
+  '..KK....KK..',
+], C_PLAYER, 1);
+
+defSprite('player_up_3', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '..HHHHHHHH..',
+  '...HHHHHH...',
+  '....HHHH....',
+  '...BBBBBB...',
+  '..BBBWBBBB..',
+  '..BBBWBBBB..',
+  '..SBBBBBBS..',
+  '...BBBBBB...',
+  '.BB....BB...',
+  'BBB....BBB..',
+  'KKK....KKK..',
+  'KK......KK..',
+], C_PLAYER, 1);
+
+// Left walk cycle
+defSprite('player_left_0', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '.HSSHHHHHH..',
+  '.HSWHHHHH...',
+  '.HSSSSHHHH..',
+  '..HSSSSH....',
+  '...SSSSH....',
+  '..BBBBBB....',
+  '.BBBWBBB....',
+  '.BBBWBBBB...',
+  '.SBBBBBB....',
+  '..BBBBBB....',
+  '..BB..BB....',
+  '.BBB..BBB...',
+  '.KKK..KKK...',
+  '.KK....KK...',
+], C_PLAYER, 1);
+
+defSprite('player_left_1', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '.HSSHHHHHH..',
+  '.HSWHHHHH...',
+  '.HSSSSHHHH..',
+  '..HSSSSH....',
+  '...SSSSH....',
+  '..BBBBBB....',
+  '.BBBWBBB....',
+  '.BBBWBBBB...',
+  '.SBBBBBB....',
+  '..BBBBBB....',
+  '..BB........',
+  '.BBBBB......',
+  '.KKKK.......',
+  '.KKK........',
+], C_PLAYER, 1);
+
+defSprite('player_left_2', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '.HSSHHHHHH..',
+  '.HSWHHHHH...',
+  '.HSSSSHHHH..',
+  '..HSSSSH....',
+  '...SSSSH....',
+  '..BBBBBB....',
+  '.BBBWBBB....',
+  '.BBBWBBBB...',
+  '.SBBBBBB....',
+  '..BBBBBB....',
+  '..BB..BB....',
+  '.BBB..BBB...',
+  '.KKK..KKK...',
+  '.KK....KK...',
+], C_PLAYER, 1);
+
+defSprite('player_left_3', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '.HSSHHHHHH..',
+  '.HSWHHHHH...',
+  '.HSSSSHHHH..',
+  '..HSSSSH....',
+  '...SSSSH....',
+  '..BBBBBB....',
+  '.BBBWBBB....',
+  '.BBBWBBBB...',
+  '.SBBBBBB....',
+  '..BBBBBB....',
+  '........BB..',
+  '......BBBBB.',
+  '.......KKKK.',
+  '........KKK.',
+], C_PLAYER, 1);
+
+// Right walk cycle
+defSprite('player_right_0', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHSS.',
+  '...HHHHHWSH.',
+  '..HHHHSSSH..',
+  '....HSSSSH..',
+  '....HSSSS...',
+  '....BBBBBB..',
+  '....BBBWBBB.',
+  '...BBBWBBBB.',
+  '....BBBBBBS.',
+  '....BBBBBB..',
+  '....BB..BB..',
+  '...BBB..BBB.',
+  '...KKK..KKK.',
+  '...KK....KK.',
+], C_PLAYER, 1);
+
+defSprite('player_right_1', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHSS.',
+  '...HHHHHWSH.',
+  '..HHHHSSSH..',
+  '....HSSSSH..',
+  '....HSSSS...',
+  '....BBBBBB..',
+  '....BBBWBBB.',
+  '...BBBWBBBB.',
+  '....BBBBBBS.',
+  '....BBBBBB..',
+  '........BB..',
+  '......BBBBB.',
+  '.......KKKK.',
+  '........KKK.',
+], C_PLAYER, 1);
+
+defSprite('player_right_2', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHSS.',
+  '...HHHHHWSH.',
+  '..HHHHSSSH..',
+  '....HSSSSH..',
+  '....HSSSS...',
+  '....BBBBBB..',
+  '....BBBWBBB.',
+  '...BBBWBBBB.',
+  '....BBBBBBS.',
+  '....BBBBBB..',
+  '....BB..BB..',
+  '...BBB..BBB.',
+  '...KKK..KKK.',
+  '...KK....KK.',
+], C_PLAYER, 1);
+
+defSprite('player_right_3', [
+  '....HHHH....',
+  '...HHHHHH...',
+  '..HHHHHHHSS.',
+  '...HHHHHWSH.',
+  '..HHHHSSSH..',
+  '....HSSSSH..',
+  '....HSSSS...',
+  '....BBBBBB..',
+  '....BBBWBBB.',
+  '...BBBWBBBB.',
+  '....BBBBBBS.',
+  '....BBBBBB..',
+  '..BB........',
+  '.BBBBB......',
+  '.KKKK.......',
+  '.KKK........',
 ], C_PLAYER, 1);
 
 // --- 2c: Professor Rafa Sprite + Portrait ---
@@ -975,6 +1378,162 @@ defSprite('tile_foundry', [
   'DDDDDDcDDDDDDDDD',
   'DDDDDDDDDDDDcDDD',
   'cDDDDDDDDDDDDDDD',
+], C_TILE, 1);
+
+// PHASE 1B: Animated Tile Variants
+// Water animation (3 frames, subtle wave motion)
+defSprite('tile_water_0', [
+  'WWWWwWWWWWWWwWWW',
+  'WWWWWWWWWwWWWWWW',
+  'wWWWWWWWWWWWWWWW',
+  'WWWWWWwWWWWWWWwW',
+  'WWwWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWwWWWWW',
+  'WWwWWWWWWWWWWWWW',
+  'WWWWWWWwWWWWwWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWwWWWWWWWWWWwW',
+  'WWWWWWWWWWWWWWWW',
+  'wWWWWWWWWwWWWWWW',
+  'WWWWWwWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWwWWWW',
+], C_TILE, 1);
+
+defSprite('tile_water_1', [
+  'WWWWWWWWwWWWWWWW',
+  'wWWWWWWWWWWWWwWW',
+  'WWWWWWWWWWWWWWWw',
+  'WWwWWWWWWWwWWWWW',
+  'WWWWwWWWWWWWWWWW',
+  'WWWWWWWWWwWWWWWW',
+  'WWWWWWwWWWWWWWWW',
+  'WWWWWWWWWWWWwWWW',
+  'WWwWWWWwWWWWWWWW',
+  'WWWWWWWWWWWWWWwW',
+  'WWWWWwWWWWWWWWWW',
+  'wWWWWWWWWWWWWWWW',
+  'WWWWWWWwWWWWwWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWwWWWWWWWWWWWWW',
+  'WWWWWWWWWwWWWWWW',
+], C_TILE, 1);
+
+defSprite('tile_water_2', [
+  'wWWWWWWWWWWWWWWW',
+  'WWWWWwWWWWWWWWWW',
+  'WWWWWWWWWwWWWWwW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWwWWWWwWWWW',
+  'WWWWWWWWWWWWWWWw',
+  'WWwWWWWWWWWWWWWW',
+  'WWWWWWWWwWWWWWWW',
+  'WWWWwWWWWWWWWWWW',
+  'WWWWWWWWWWwWWWWW',
+  'WWWWWWWWWWWWWwWW',
+  'WWWwWWWWwWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWwW',
+  'wWWWWWWwWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+], C_TILE, 1);
+
+// Grass animation (2 frames, subtle shimmer)
+defSprite('tile_grass_0', [
+  'GGGGGGGGGGGGGGGG',
+  'GGggGGGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGggGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGGGGGggGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGggGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGGGggGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGggGGGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGggGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+], C_TILE, 1);
+
+defSprite('tile_grass_1', [
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGggGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGGGGGggGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGggGGGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGGGggGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGggGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGggGGGGGG',
+  'GGGGGGGGGGGGGGGG',
+  'GGGGGGGGGGGGGGgg',
+  'GGGGGGGGGGGGGGGG',
+], C_TILE, 1);
+
+// Tech/Nexus animation (3 frames, pulsing energy)
+defSprite('tile_nexus_0', [
+  'DDDDNDDDDDDDNDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDNDDDDDDDNDDDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDDDNDDDDDDDND',
+  'DDDDDDDDDDDDDDDD',
+  'NDDDDDDDDDDDDDDD',
+  'DDDDDDDDNDDDDDDD',
+  'DDDDNDDDDDDDDDDD',
+  'DDDDDDDDDDDDDDND',
+  'DDDDDDDDDDDDDDDD',
+  'DDNDDDDDDDDDNDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDDDNDDDDDDDDD',
+  'DDDDDDDDDDDDNDDD',
+  'NDDDDDDDDDDDDDDD',
+], C_TILE, 1);
+
+defSprite('tile_nexus_1', [
+  'DDDDDDNDDDDDDDND',
+  'DDDDDDDDDDDDDDDD',
+  'NDDDDDDDDDDDDDDD',
+  'DDDDDDDDNDDDDDDD',
+  'DDDDNDDDDDDDNDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDNDDDDDDDDDDDDD',
+  'DDDDDDDDDDNDDDDD',
+  'DDDDDDNDDDDDDDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDNDDDDDDDDDNDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDDDDDNDDDDDND',
+  'DDDDDDDDDDDDDDDD',
+  'NDDDDDDDDDDDDDDD',
+  'DDDDNDDDDDDDDDDD',
+], C_TILE, 1);
+
+defSprite('tile_nexus_2', [
+  'NDDDDDDDDDDDDDDD',
+  'DDDDNDDDDDDDDDND',
+  'DDDDDDDDDDNDDDDD',
+  'DDDDDDDDDDDDDDDD',
+  'DDNDDDDDDDDDDDDD',
+  'DDDDDDDDNDDDDDND',
+  'DDDDDDDDDDDDDDDD',
+  'DDDDNDDDDDDDDDDD',
+  'DDDDDDDDDDDDNDDD',
+  'NDDDDDDDDDDDDDDD',
+  'DDDDDDNDDDDDDDDD',
+  'DDDDDDDDDDNDDDDD',
+  'DDDDDDDDDDDDDDDD',
+  'NDDDDDDDDDDDDDDD',
+  'DDDDDDDDDDDDDDND',
+  'DDDDNDDDDDDDDDDD',
 ], C_TILE, 1);
 
 // PHASE 0: B2W2-Style Object Tiles
@@ -1756,7 +2315,8 @@ function renderMap() {
       const ch = map.data[row][col];
       const tt = TILE_TYPES[ch];
       if (tt) {
-        drawSprite(tt.sprite, col * TILE - camX, row * TILE - camY);
+        const spriteName = getAnimatedTileSprite(tt.sprite);
+        drawSprite(spriteName, col * TILE - camX, row * TILE - camY);
       }
     }
   }
@@ -2001,6 +2561,19 @@ const OBJECT_INTERACTIONS = {
 
 // Layered map rendering system
 // Supports: ground, object, overlay layers
+// Helper: Get the correct sprite name for animated tiles
+function getAnimatedTileSprite(baseSprite) {
+  // Check if this is an animated tile
+  if (baseSprite === 'tile_water') {
+    return `tile_water_${tileAnimState.water.frame}`;
+  } else if (baseSprite === 'tile_grass') {
+    return `tile_grass_${tileAnimState.grass.frame}`;
+  } else if (baseSprite === 'tile_nexus' || baseSprite === 'tile_foundry') {
+    return `tile_nexus_${tileAnimState.tech.frame}`;
+  }
+  return baseSprite; // Not animated, return as-is
+}
+
 function renderMapLayered(map, camX, camY) {
   const startCol = Math.max(0, Math.floor(camX / TILE));
   const startRow = Math.max(0, Math.floor(camY / TILE));
@@ -2014,7 +2587,8 @@ function renderMapLayered(map, camX, camY) {
       const ch = groundLayer[row]?.[col];
       const tt = TILE_TYPES[ch];
       if (tt) {
-        drawSprite(tt.sprite, col * TILE - camX, row * TILE - camY);
+        const spriteName = getAnimatedTileSprite(tt.sprite);
+        drawSprite(spriteName, col * TILE - camX, row * TILE - camY);
       }
     }
   }
@@ -2026,7 +2600,8 @@ function renderMapLayered(map, camX, camY) {
         const ch = map.layers.object[row]?.[col];
         const tt = TILE_TYPES[ch];
         if (tt && ch !== '.') {
-          drawSprite(tt.sprite, col * TILE - camX, row * TILE - camY);
+          const spriteName = getAnimatedTileSprite(tt.sprite);
+          drawSprite(spriteName, col * TILE - camX, row * TILE - camY);
         }
       }
     }
@@ -2084,12 +2659,29 @@ function startBattle(enemyId, level) {
 }
 
 function renderPlayer() {
-  const dirs = ['player_down', 'player_up', 'player_left', 'player_right'];
+  const dirNames = ['down', 'up', 'left', 'right'];
+  const dirName = dirNames[game.player.dir];
   const px = game.player.x - overworld.camera.x;
   const py = game.player.y - overworld.camera.y;
-  // Bob animation when moving
-  const bob = overworld.moving ? Math.sin(game.frame * 0.3) * 1 : 0;
-  drawSpriteScaled(dirs[game.player.dir], px, py + bob, TILE, TILE);
+
+  // Draw character shadow (Phase 1C)
+  drawCharacterShadow(px, py);
+
+  // Select sprite based on movement state (Phase 1C)
+  let spriteName;
+  if (overworld.moving) {
+    // Use walk cycle animation
+    const frame = charAnimState.walkCycle.frame;
+    spriteName = `player_${dirName}_${frame}`;
+  } else {
+    // Use idle animation (subtle breathing)
+    const idleFrame = charAnimState.idleCycle.frame;
+    spriteName = idleFrame === 0 ? `player_${dirName}` : `player_${dirName}_0`;
+  }
+
+  // Subtle bob when moving
+  const bob = overworld.moving ? Math.sin(game.frame * 0.3) * 0.5 : 0;
+  drawSpriteScaled(spriteName, px, py + bob, TILE, TILE);
 }
 
 function renderNPCs() {
@@ -4282,6 +4874,12 @@ function gameLoop(timestamp) {
   game.frame++;
 
   inputUpdate();
+
+  // Update tile animations (Phase 1B)
+  updateAnimations(game.dt);
+
+  // Update character animations (Phase 1C)
+  updateCharAnimations(game.dt);
 
   // Update current state
   const handler = stateHandlers[game.state];
